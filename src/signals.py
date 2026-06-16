@@ -125,20 +125,31 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
             if new_forecasts:
                 pd.concat([existing_forecast, pd.DataFrame(new_forecasts)], ignore_index=True).to_csv(forecast_archive, index=False)
 
-    # Aggregate forecasts per station+target_date into a bundle (simple mean)
+    # Aggregate forecasts per station+target_date into a bundle.
+    # Mean across models = point forecast; std across models = ensemble spread
+    # (a live measure of forecast uncertainty fed into the probability model).
     if not fdf.empty and "target_date" in fdf.columns:
-        agg_desired = {
-            "predicted_high_f": "mean",
-            "predicted_low_f": "mean",
-            "precip_probability": "mean",
-            "cloud_cover": "mean",
-            "wind_speed": "mean",
-            "forecast_source": lambda x: ",".join(sorted(set([str(v) for v in x if pd.notna(v)]))),
-            "run_time_utc": "max",
-        }
-        agg_dict = {k: v for k, v in agg_desired.items() if k in fdf.columns}
-        agg = fdf.groupby(["station", "target_date"]).agg(agg_dict).reset_index()
-        agg = agg.rename(columns={"forecast_source": "forecast_sources", "run_time_utc": "forecast_run_time_utc"})
+        agg_specs = {}
+        if "predicted_high_f" in fdf.columns:
+            agg_specs["predicted_high_f"] = ("predicted_high_f", "mean")
+            agg_specs["predicted_high_std_f"] = ("predicted_high_f", "std")
+            agg_specs["n_models"] = ("predicted_high_f", "count")
+        if "predicted_low_f" in fdf.columns:
+            agg_specs["predicted_low_f"] = ("predicted_low_f", "mean")
+        if "precip_probability" in fdf.columns:
+            agg_specs["precip_probability"] = ("precip_probability", "mean")
+        if "cloud_cover" in fdf.columns:
+            agg_specs["cloud_cover"] = ("cloud_cover", "mean")
+        if "wind_speed" in fdf.columns:
+            agg_specs["wind_speed"] = ("wind_speed", "mean")
+        if "forecast_source" in fdf.columns:
+            agg_specs["forecast_sources"] = (
+                "forecast_source",
+                lambda x: ",".join(sorted(set([str(v) for v in x if pd.notna(v)]))),
+            )
+        if "run_time_utc" in fdf.columns:
+            agg_specs["forecast_run_time_utc"] = ("run_time_utc", "max")
+        agg = fdf.groupby(["station", "target_date"]).agg(**agg_specs).reset_index()
     else:
         agg = pd.DataFrame()
 
@@ -178,11 +189,39 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
 
         # Model calculation
         predicted_high = r.get("predicted_high_f")
+
+        # Lead time: hours from the market snapshot to the target day.
+        target_d = r.get("target_date")
+        hours_until_target = 24.0  # sensible ~1-day fallback
+        try:
+            if pd.notna(timestamp) and target_d is not None:
+                snap_date = pd.to_datetime(timestamp).date()
+                lead_days = (target_d - snap_date).days
+                hours_until_target = max(0.0, float(lead_days) * 24.0)
+        except Exception:
+            hours_until_target = 24.0
+
+        # Ensemble spread (std of per-model predicted highs), if available.
+        ens_std_raw = r.get("predicted_high_std_f") if "predicted_high_std_f" in r.index else None
+        ens_std = float(ens_std_raw) if (ens_std_raw is not None and not pd.isna(ens_std_raw)) else None
+        n_models_raw = r.get("n_models") if "n_models" in r.index else None
+        n_models = int(n_models_raw) if (n_models_raw is not None and not pd.isna(n_models_raw)) else None
+
         model = None
-        if predicted_high is not None and threshold is not None:
-            model = model_probability_above(predicted_high, threshold, 24.0, station, integer_settlement_mode=integer_settlement_mode)
+        if predicted_high is not None and not pd.isna(predicted_high) and threshold is not None and not pd.isna(threshold):
+            model = model_probability_above(
+                predicted_high,
+                threshold,
+                hours_until_target,
+                station,
+                integer_settlement_mode=integer_settlement_mode,
+                ensemble_std_f=ens_std,
+                cfg=cfg,
+            )
         model_prob_yes = model["model_prob_yes"] if model else None
         model_prob_no = model["model_prob_no"] if model else None
+        effective_sigma_f = model["error_std_f"] if model else None
+        model_method = model["method"] if model else None
         yes_edge = model_prob_yes - yes_ask - fee_buffer if (model_prob_yes is not None and yes_ask is not None) else None
         no_edge = model_prob_no - no_ask - fee_buffer if (model_prob_no is not None and no_ask is not None) else None
 
@@ -258,6 +297,11 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
             "yes_ask": yes_ask,
             "no_ask": no_ask,
             "predicted_high_f": r.get("predicted_high_f"),
+            "predicted_high_std_f": ens_std,
+            "n_models": n_models,
+            "hours_until_target": hours_until_target,
+            "effective_sigma_f": effective_sigma_f,
+            "model_method": model_method,
             "model_prob_yes": model_prob_yes,
             "model_prob_no": model_prob_no,
             "yes_edge": yes_edge,

@@ -72,9 +72,57 @@ pytest -q
 
 We use a normal-distribution error model around the forecasted daily high:
 
-final_high ~ Normal(predicted_high + station_bias, error_std)
+final_high ~ Normal(predicted_high + station_bias, sigma)
 
 For integer settlement observations we model rounding by evaluating probabilities at `threshold + 0.5` (configurable).
+
+### v2: ensemble + lead-time aware uncertainty (default)
+
+`sigma` is no longer a single fixed number. It is computed as:
+
+- the per-station base error std (`error_std_f`), scaled up with **forecast lead time**
+  (a 7-day-out bet is far less certain than a same-day bet), then
+- widened by **ensemble spread** — the disagreement among several weather models
+  (GFS, ECMWF, ICON, GEM) fetched from Open-Meteo in one request, then
+- floored at `min_sigma_f` to avoid overconfident 0/1 probabilities.
+
+Tunables live under `defaults:` in `config.yaml` (`lead_time_slope`, `lead_time_ref_days`,
+`lead_time_cap_mult`, `ensemble_spread_inflation`, `ensemble_blend`, `min_sigma_f`).
+Set `method="normal_error_v1"` to fall back to the legacy fixed-sigma model.
+
+## Measuring accuracy over time
+
+The goal is to see, as data accumulates, how accurate the engine is — without
+placing any trades.
+
+1. Generate signals over time (writes `data/signals.csv`, archives snapshots):
+
+   ```bash
+   python -m scripts.fetch_and_signal          # or scripts.run_signal_engine
+   ```
+
+2. Auto-fill actual outcomes for past dates from the Open-Meteo archive
+   (no manual entry; writes `data/settlements.csv`):
+
+   ```bash
+   python -m scripts.backfill_settlements        # add --dry-run to preview
+   ```
+
+3. Run the accuracy report:
+
+   ```bash
+   python -m scripts.run_accuracy_report
+   ```
+
+   This produces:
+   - **Forecast accuracy** (MAE / bias / RMSE) by station, by model, and by lead time
+     → `data/forecast_accuracy_by_*.csv`
+   - **Signal win-rate over time** (cumulative + rolling) → `data/signal_winrate_timeseries.csv`
+   - **Suggested calibration** (per-station bias + error std) → `data/calibration_suggested.csv`;
+     copy values into `data/calibration.csv` to self-tune the model.
+
+Note: archive observations are a good proxy for settlement but may not exactly
+match the official ForecastEx settlement source — verify before relying on them.
 
 ## Risk & Disclaimer
 

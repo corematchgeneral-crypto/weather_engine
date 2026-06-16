@@ -1,3 +1,0 @@
-market_snapshot_id,timestamp_utc,market,city,station,target_date,threshold_f,yes_ask,no_ask,yes_bid,no_bid,volume,source_file,created_at_utc
-d3cf3d3b170aefe4ccf3dab8c95cf3a49123327b0d9136822a6b34a9f41d440f,2026-06-16T10:30:00+00:00,Test,TestCity,KMDW,2026-06-17,70,0.1,0.9,0.0,0.0,10.0,market.csv,2026-06-16T11:41:36.767283+00:00
-a1af557e498b011c95f811d2d14eee194f47e1617c52399c889880f70d282d78,2026-06-16T10:30:00+00:00,Test,TestCity,KMDW,2026-06-17,70,,0.9,,,,market.csv,2026-06-16T11:41:40.542120+00:00

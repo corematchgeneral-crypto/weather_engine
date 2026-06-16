@@ -34,3 +34,12 @@ defaults:
   integer_settlement_mode: true
   min_market_volume: 20
   calibration_csv: data/calibration.csv
+  # --- v2 probability model: lead-time + ensemble-spread aware uncertainty ---
+  # Effective sigma = base station error_std scaled by lead time, widened by
+  # live model disagreement (ensemble spread), floored at min_sigma_f.
+  lead_time_slope: 0.15        # extra sigma fraction added per lead day beyond ref
+  lead_time_ref_days: 1.0      # lead time at which base error_std applies
+  lead_time_cap_mult: 3.0      # max multiplier on base error_std for far-out dates
+  ensemble_spread_inflation: 1.0  # multiplier applied to ensemble std before blending
+  ensemble_blend: max          # how to combine climatology vs spread: "max" or "quad"
+  min_sigma_f: 1.0             # hard floor on sigma to avoid overconfident 0/1 probs
