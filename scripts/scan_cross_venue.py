@@ -58,7 +58,15 @@ def main():
         print("Need markets from BOTH venues to compare. Aborting.")
         return
 
-    print(f"Matching (similarity >= {args.min_similarity}) ...")
+    # Diagnostic: show what the titles actually look like (so we can tune matching)
+    print("\nSample Polymarket titles:")
+    for m in pm[:8]:
+        print(f"    [{str(m.get('title'))[:90]}]  yes={m.get('yes_ask')} no={m.get('no_ask')}")
+    print("Sample Kalshi titles:")
+    for m in kl[:8]:
+        print(f"    [{str(m.get('title'))[:90]}]  yes={m.get('yes_ask')} no={m.get('no_ask')}")
+
+    print(f"\nMatching (similarity >= {args.min_similarity}) ...")
     results = scan_pairs(pm, kl, min_similarity=args.min_similarity, fee=args.fee)
     print(f"  Matched pairs: {len(results)}")
 
