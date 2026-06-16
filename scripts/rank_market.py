@@ -56,7 +56,9 @@ def rank_and_print(market_csv, top=20, min_edge=None):
 
     out = out.copy()
     out["best_edge"] = out[["yes_edge", "no_edge"]].max(axis=1)
-    ranked = out.sort_values("best_edge", ascending=False)
+    out["_is_trade"] = out["signal"].isin(["BUY_YES", "BUY_NO"]).astype(int)
+    # Real trades first, then by edge (suppressed/no-trade rows sink to the bottom)
+    ranked = out.sort_values(["_is_trade", "best_edge"], ascending=[False, False])
     if min_edge is not None:
         ranked = ranked[ranked["best_edge"] >= min_edge]
 
