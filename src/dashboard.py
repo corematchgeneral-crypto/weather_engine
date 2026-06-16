@@ -87,7 +87,16 @@ with tab_signals:
         st.subheader("Ranked signals by best edge")
         signals = signals.copy()
         signals["best_edge"] = signals[["yes_edge", "no_edge"]].max(axis=1)
-        st.dataframe(signals.sort_values(by="best_edge", ascending=False), use_container_width=True)
+        # Show only the columns that matter, in a readable order
+        cols = [c for c in [
+            "city", "target_date", "notes", "comparison", "threshold_f",
+            "predicted_value_f", "model_prob_yes", "yes_ask", "no_ask",
+            "yes_edge", "no_edge", "signal", "confidence_label", "best_edge",
+        ] if c in signals.columns]
+        view = signals.sort_values(by="best_edge", ascending=False)[cols]
+        st.dataframe(view, use_container_width=True, hide_index=True)
+        with st.expander("Show all columns (raw)"):
+            st.dataframe(signals.sort_values(by="best_edge", ascending=False), use_container_width=True)
 
     st.header("Probability curve (v2 model)")
     if not market_df.empty:
