@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from src.weather_data import fetch_forecasts_for_stations
 from src.signals import generate_signals
 from src.config import load_config
-from src.probability_model import effective_sigma, _norm_cdf
+from src.probability_model import effective_sigma, _norm_cdf, contract_bounds_f
 from src.historical_evaluation import evaluate_signals
 from src.forecast_accuracy import compute_forecast_accuracy, compute_winrate_timeseries
 
@@ -131,8 +131,16 @@ with tab_signals:
         station = row["station"]
         target_date = pd.to_datetime(row["target_date"]).date()
         thresh = float(row["threshold_f"])
-        direction = str(row["direction"]).upper() if ("direction" in market_df.columns and pd.notna(row.get("direction"))) else "ABOVE"
+        comparison = (str(row["comparison"]).upper() if ("comparison" in market_df.columns and pd.notna(row.get("comparison")))
+                      else (str(row["direction"]).upper() if ("direction" in market_df.columns and pd.notna(row.get("direction"))) else "ABOVE"))
+        unit = str(row["unit"]).upper() if ("unit" in market_df.columns and pd.notna(row.get("unit"))) else "F"
         underlying = str(row["underlying"]).upper() if ("underlying" in market_df.columns and pd.notna(row.get("underlying"))) else "HIGH"
+        thr_hi = None
+        if "threshold_high" in market_df.columns and pd.notna(row.get("threshold_high")):
+            try:
+                thr_hi = float(row.get("threshold_high"))
+            except Exception:
+                thr_hi = None
 
         # ensemble mean + spread from fetched forecasts for this station/date/underlying
         ph, ens_std = None, None
@@ -151,28 +159,30 @@ with tab_signals:
 
         if ph is not None:
             station_cfg = cfg.stations[station]
-            mu = ph + station_cfg.station_bias_f
+            bias = station_cfg.station_bias_f
             lead_days = max(0, (target_date - date.today()).days)
-            sig_info = effective_sigma(base_std_f=station_cfg.error_std_f,
-                                       hours_until_target_day=lead_days * 24.0,
-                                       ensemble_std_f=ens_std, **_sigma_params())
-            sigma = sig_info["sigma"]
-            boundary = (0.5 if direction == "ABOVE" else -0.5) if integer_settlement_mode else 0.0
-            eff_thr = thresh + boundary
+            sigma = effective_sigma(base_std_f=station_cfg.error_std_f,
+                                    hours_until_target_day=lead_days * 24.0,
+                                    ensemble_std_f=ens_std, **_sigma_params())["sigma"]
+            # Unit-aware band [a_f, b_f) in deg F (handles C->F and all comparisons)
+            a_f, b_f = contract_bounds_f(comparison, thresh, thr_hi, unit, integer_settlement_mode)
 
-            def _p_yes(x):
-                cdf = _norm_cdf((eff_thr - x) / sigma)
-                return (1.0 - cdf) if direction == "ABOVE" else cdf
+            def _p_yes(forecast_f):
+                mu = forecast_f + bias
+                hi = 1.0 if b_f == float("inf") else _norm_cdf((b_f - mu) / sigma)
+                lo = 0.0 if a_f == float("-inf") else _norm_cdf((a_f - mu) / sigma)
+                return max(0.0, min(1.0, hi - lo))
 
-            xs = np.arange(mu - 12, mu + 12, 0.5)
+            xs = np.arange(ph - 12, ph + 12, 0.5)
             probs = np.array([_p_yes(x) for x in xs])
-            chart_df = pd.DataFrame({"temp": xs, "prob_yes": probs}).set_index("temp")
+            chart_df = pd.DataFrame({"forecast_F": xs, "prob_yes": probs}).set_index("forecast_F")
             st.line_chart(chart_df)
             c1, c2, c3, c4 = st.columns(4)
             c1.metric(f"Predicted {underlying} (mean)", f"{ph:.1f} F")
             c2.metric("Ensemble spread", f"{ens_std:.2f} F" if ens_std is not None else "n/a")
             c3.metric(f"Effective sigma (lead {lead_days}d)", f"{sigma:.2f} F")
-            c4.metric(f"P(YES) {direction} {thresh:g}", f"{_p_yes(mu):.1%}")
+            label = f"{thresh:g}{unit}" + (f"-{thr_hi:g}{unit}" if (comparison == "RANGE" and thr_hi is not None) else "")
+            c4.metric(f"P(YES) {comparison} {label}", f"{_p_yes(ph):.1%}")
         else:
             st.info("No forecast found for this row. Fetch forecasts covering the target date.")
 
