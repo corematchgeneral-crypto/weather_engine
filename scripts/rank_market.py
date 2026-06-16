@@ -19,27 +19,27 @@ from src.signals import generate_signals
 
 
 def _fmt(x, p="{:.3f}"):
-    return "n/a" if (x is None or (isinstance(x, float) and pd.isna(x))) else (p.format(x) if isinstance(x, (int, float)) else str(x))
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return "n/a"
+    return p.format(x) if isinstance(x, (int, float)) else str(x)
 
 
-def main():
+def rank_and_print(market_csv, top=20, min_edge=None):
+    """Fetch forecasts for the market file's cities and print contracts by edge."""
     base = Path(__file__).resolve().parent.parent
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--market-csv", default=str(base / "data" / "polymarket_2026-06-17.csv"))
-    parser.add_argument("--top", type=int, default=20, help="how many ranked rows to show")
-    parser.add_argument("--min-edge", type=float, default=None, help="only show rows whose best edge >= this")
-    args = parser.parse_args()
-
     cfg = load_config(base / "config.yaml")
-    market_csv = Path(args.market_csv)
+    market_csv = Path(market_csv)
     mdf = pd.read_csv(market_csv)
     mdf["target_date"] = pd.to_datetime(mdf["target_date"]).dt.date
 
-    stations = sorted(set(mdf["station"].dropna()))
+    stations = sorted(set(str(s) for s in mdf["station"].dropna() if str(s).strip()))
     known = [s for s in stations if s in cfg.stations]
     unknown = [s for s in stations if s not in cfg.stations]
     if unknown:
         print(f"WARNING: stations not in config.yaml (skipped): {unknown}")
+    if not known:
+        print("No known stations to forecast. Add their coordinates to config.yaml.")
+        return
 
     today = pd.Timestamp.today().date()
     start = min([today] + list(mdf["target_date"]))
@@ -48,7 +48,6 @@ def main():
     forecasts = fetch_forecasts_for_stations(known, start, end)
     print(f"Forecast rows: {len(forecasts)}")
 
-    # Isolate archives for this market so they don't mix with other runs.
     data_dir = base / "data" / "market_runs"
     out = generate_signals(market_csv, forecasts, data_dir=data_dir)
     if out.empty:
@@ -58,15 +57,15 @@ def main():
     out = out.copy()
     out["best_edge"] = out[["yes_edge", "no_edge"]].max(axis=1)
     ranked = out.sort_values("best_edge", ascending=False)
-    if args.min_edge is not None:
-        ranked = ranked[ranked["best_edge"] >= args.min_edge]
+    if min_edge is not None:
+        ranked = ranked[ranked["best_edge"] >= min_edge]
 
     print()
-    header = f"{'market':18s} {'bucket':14s} {'cmp':8s} {'fcst_F':>7s} {'P(yes)':>7s} {'yes':>5s} {'no':>5s} {'signal':9s} {'edge':>7s} conf"
+    header = f"{'city':12s} {'bucket':14s} {'cmp':8s} {'fcst_F':>7s} {'P(yes)':>7s} {'yes':>5s} {'no':>5s} {'signal':9s} {'edge':>7s} conf"
     print(header)
     print("-" * len(header))
-    for _, r in ranked.head(args.top).iterrows():
-        print(f"{str(r.get('market'))[:18]:18s} "
+    for _, r in ranked.head(top).iterrows():
+        print(f"{str(r.get('city'))[:12]:12s} "
               f"{str(r.get('notes'))[:14]:14s} "
               f"{str(r.get('comparison'))[:8]:8s} "
               f"{_fmt(r.get('predicted_value_f'),'{:.1f}'):>7s} "
@@ -80,6 +79,17 @@ def main():
     n_buy = int((ranked["signal"].isin(["BUY_YES", "BUY_NO"])).sum())
     print(f"\n{n_buy} contract(s) flagged as a trade (edge >= minimum). "
           f"Signals are research-only; verify each market's settlement source before trading.")
+    return ranked
+
+
+def main():
+    base = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--market-csv", default=str(base / "data" / "polymarket_2026-06-17.csv"))
+    parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--min-edge", type=float, default=None)
+    args = parser.parse_args()
+    rank_and_print(args.market_csv, top=args.top, min_edge=args.min_edge)
 
 
 if __name__ == "__main__":
