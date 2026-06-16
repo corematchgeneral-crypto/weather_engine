@@ -42,6 +42,28 @@ def _read(path, **kw):
     return pd.read_csv(path, **kw) if Path(path).exists() else pd.DataFrame()
 
 
+def _market_files():
+    """List CSVs under data/ that look like market inputs (have station/target_date/yes_ask),
+    excluding generated archives."""
+    generated = {"signals.csv", "forecast_snapshots.csv", "market_snapshots.csv",
+                 "settlements.csv", "evaluated_trades.csv"}
+    found = []
+    for p in sorted(DATA.glob("*.csv")):
+        if p.name in generated:
+            continue
+        try:
+            cols = set(pd.read_csv(p, nrows=0).columns)
+        except Exception:
+            continue
+        if {"station", "target_date", "yes_ask"}.issubset(cols):
+            found.append(p.name)
+    # default first
+    if "market_prices_sample.csv" in found:
+        found.remove("market_prices_sample.csv")
+        found.insert(0, "market_prices_sample.csv")
+    return found or ["market_prices_sample.csv"]
+
+
 # --------------------------------------------------------------------------
 # Sidebar controls
 # --------------------------------------------------------------------------
@@ -60,7 +82,11 @@ if st.sidebar.button("Fetch forecasts and compute signals"):
 
 forecasts = st.session_state.get("forecasts", pd.DataFrame())
 
-market_path = DATA / "market_prices_sample.csv"
+# Which market file to analyze (IBKR sample, Polymarket scan, etc.)
+_files = _market_files()
+selected_file = st.sidebar.selectbox("Market file", _files, index=0,
+                                     help="market_prices_sample.csv = IBKR-style; polymarket_scan.csv = the multi-city Polymarket scan")
+market_path = DATA / selected_file
 
 tab_signals, tab_accuracy = st.tabs(["Signals", "Accuracy over time"])
 
