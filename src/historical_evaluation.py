@@ -21,7 +21,7 @@ def _read_csv_optional(path: Path, parse_dates=None) -> pd.DataFrame:
     return df
 
 
-def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlements_path: Path, fee_buffer: float = 0.03) -> Dict[str, Any]:
+def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlements_path: Path, fee_buffer: float = 0.03, data_dir: Path = None) -> Dict[str, Any]:
     signals = _read_csv_optional(signals_path, parse_dates=["generated_at_utc", "timestamp_utc"]) 
     market = _read_csv_optional(market_snapshots_path, parse_dates=["timestamp_utc"]) 
     settlements = _read_csv_optional(settlements_path, parse_dates=["resolved_at_utc"]) 
@@ -38,26 +38,80 @@ def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlement
     if not settlements.empty and "target_date" in settlements.columns:
         settlements["target_date"] = pd.to_datetime(settlements["target_date"], errors="coerce").dt.date
 
-    # Require settlements with station+target_date+final_high_f for evaluation
-    if settlements.empty or not {"station", "target_date", "final_high_f"}.issubset(settlements.columns):
+    # Require settlements with station+target_date and at least one observed value
+    has_value_col = {"final_high_f", "final_low_f"} & set(settlements.columns)
+    if settlements.empty or not {"station", "target_date"}.issubset(settlements.columns) or not has_value_col:
         return {"error": "No settlements to evaluate"}
 
     # Merge signals with settlements on station+target_date
     merged = signals.merge(settlements, how="left", on=["station", "target_date"], suffixes=("", "_settlement"))
 
-    # Only evaluate signals where settlement final_high_f exists
-    merged = merged[~merged["final_high_f"].isna()]
-    if merged.empty:
-        return {"error": "No settled signals to evaluate"}
+    # Ensure expected columns exist with defaults (back-compat with older signal files)
+    if "direction" not in merged.columns:
+        merged["direction"] = "ABOVE"
+    else:
+        merged["direction"] = merged["direction"].fillna("ABOVE")
+    if "comparison" not in merged.columns:
+        merged["comparison"] = merged["direction"]
+    else:
+        merged["comparison"] = merged["comparison"].fillna(merged["direction"])
+    if "unit" not in merged.columns:
+        merged["unit"] = "F"
+    else:
+        merged["unit"] = merged["unit"].fillna("F")
+    if "threshold_high" not in merged.columns:
+        merged["threshold_high"] = np.nan
+    if "underlying" not in merged.columns:
+        merged["underlying"] = "HIGH"
+    else:
+        merged["underlying"] = merged["underlying"].fillna("HIGH")
+    if "final_high_f" not in merged.columns:
+        merged["final_high_f"] = np.nan
+    if "final_low_f" not in merged.columns:
+        merged["final_low_f"] = np.nan
 
-    # Determine binary outcome for YES (final_high_f > threshold)
-    merged["actual_yes_outcome"] = merged.apply(lambda r: 1 if float(r["final_high_f"]) > float(r["threshold_f"]) else 0, axis=1)
-
-    # Coerce numeric-like columns to numeric dtype to avoid string arithmetic errors
-    num_cols = ["model_prob_yes", "model_prob_no", "yes_ask", "no_ask", "threshold_f", "final_high_f"]
+    # Coerce numeric-like columns before computing outcomes
+    num_cols = ["model_prob_yes", "model_prob_no", "yes_ask", "no_ask", "threshold_f", "threshold_high", "final_high_f", "final_low_f"]
     for c in num_cols:
         if c in merged.columns:
             merged[c] = pd.to_numeric(merged[c], errors="coerce")
+
+    # Observed settled value depends on the contract's underlying (HIGH/LOW/AVG).
+    # Stored final values are in deg F (the unit-conversion lives in the bounds).
+    def _observed_value(r):
+        u = str(r.get("underlying", "HIGH")).upper()
+        hi, lo = r.get("final_high_f"), r.get("final_low_f")
+        if u == "LOW":
+            return lo
+        if u == "AVG":
+            return (hi + lo) / 2.0 if (pd.notna(hi) and pd.notna(lo)) else np.nan
+        return hi
+
+    merged["observed_value_f"] = merged.apply(_observed_value, axis=1)
+    # Only evaluate signals where the needed observed value exists
+    merged = merged[merged["observed_value_f"].notna()]
+    if merged.empty:
+        return {"error": "No settled signals to evaluate"}
+
+    # YES outcome via the same bounds the model used: YES iff a_f <= observed_F < b_f
+    from src.probability_model import contract_bounds_f
+
+    def _outcome(r):
+        obs, thr = r.get("observed_value_f"), r.get("threshold_f")
+        if pd.isna(obs) or pd.isna(thr):
+            return np.nan
+        thr_hi = r.get("threshold_high")
+        thr_hi = float(thr_hi) if pd.notna(thr_hi) else None
+        try:
+            a_f, b_f = contract_bounds_f(
+                str(r.get("comparison", "ABOVE")).upper(), float(thr), thr_hi,
+                str(r.get("unit", "F")).upper(), True,
+            )
+        except Exception:
+            return np.nan
+        return 1 if (a_f <= float(obs) < b_f) else 0
+
+    merged["actual_yes_outcome"] = merged.apply(_outcome, axis=1)
 
     # Compute PnL per spec
     def compute_pnl(row):
@@ -241,9 +295,11 @@ def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlement
     calib["calibration_error"] = calib["actual_yes_rate"] - calib["avg_model_prob"]
 
     base = Path(__file__).parent.parent
-    evaluated_path = base / "data" / "evaluated_trades.csv"
-    metrics_by_group_path = base / "data" / "historical_metrics_by_group.csv"
-    calib_path = base / "data" / "calibration_buckets.csv"
+    out_dir = Path(data_dir) if data_dir is not None else base / "data"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    evaluated_path = out_dir / "evaluated_trades.csv"
+    metrics_by_group_path = out_dir / "historical_metrics_by_group.csv"
+    calib_path = out_dir / "calibration_buckets.csv"
 
     merged.to_csv(evaluated_path, index=False)
     group.to_csv(metrics_by_group_path, index=False)

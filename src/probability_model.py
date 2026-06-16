@@ -1,34 +1,302 @@
-from typing import Tuple
+"""Probabilistic model for daily-high binary contracts.
+
+Two methods are provided:
+
+- ``normal_error_v1`` (legacy): a single fixed per-station error standard
+  deviation, ignoring forecast lead time and model disagreement.
+- ``normal_error_v2`` (default): the effective standard deviation grows with
+  forecast lead time and widens when multiple weather models disagree
+  (ensemble spread). This produces more honest probabilities -- it stops the
+  model from being over-confident on far-out dates, which is the main way a
+  naive model leaks money on these markets.
+
+Both model the eventual settled high temperature as a normal distribution
+around the (bias-corrected) forecast and integrate the tail beyond the
+contract threshold.
+"""
+
+from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 import math
-from scipy.stats import norm
-from src.config import load_config
+
+if TYPE_CHECKING:  # for type hints only; avoids importing pydantic/yaml at module load
+    from src.config import Config
 
 
-def model_probability_above(predicted_high_f: float, threshold_f: float, hours_until_target_day: float, station: str, integer_settlement_mode: bool = True) -> dict:
-    cfg = load_config(Path(__file__).parent.parent / "config.yaml")
+def _norm_cdf(z: float) -> float:
+    """Standard normal CDF using only the standard library (no scipy needed).
+
+    Phi(z) = 0.5 * (1 + erf(z / sqrt(2))). Matches scipy.stats.norm.cdf to
+    floating-point precision.
+    """
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
+_NEG_INF = float("-inf")
+_POS_INF = float("inf")
+
+
+def _to_f(value: float, unit: str) -> float:
+    """Convert a temperature value to deg F (unit 'C' or 'F')."""
+    return value * 9.0 / 5.0 + 32.0 if str(unit).upper() == "C" else float(value)
+
+
+def contract_bounds_f(
+    comparison: str,
+    threshold: float,
+    threshold_high: Optional[float] = None,
+    unit: str = "F",
+    integer_settlement_mode: bool = True,
+) -> tuple:
+    """Return ``(a_f, b_f)``: the contract resolves YES iff ``a_f <= value_F < b_f``.
+
+    Supports every ForecastEx / Polymarket temperature shape:
+
+    - ``ABOVE`` ("exceed N"):      value > N
+    - ``BELOW`` ("be below N"):    value < N
+    - ``ATLEAST`` ("N or higher"): rounds to >= N
+    - ``ATMOST`` ("N or below"):   rounds to <= N
+    - ``EQUALS`` ("= N"):          rounds to N (a 1-degree bucket)
+    - ``RANGE`` ("Lo-Hi"):         rounds into [Lo, Hi]
+
+    ``threshold``/``threshold_high`` are in ``unit`` (``"C"`` or ``"F"``). Whole-
+    degree rounding boundaries (+/-0.5) are applied in the native unit and then
+    converted to deg F (the model works in F). For ABOVE/BELOW the +/-0.5 shift is
+    applied only when ``integer_settlement_mode`` is True; bucket comparisons
+    (ATLEAST/ATMOST/EQUALS/RANGE) always round to whole degrees.
+    """
+    comp = (comparison or "ABOVE").upper()
+    half = 0.5 if integer_settlement_mode else 0.0
+    if comp == "ABOVE":
+        lo, hi = threshold + half, None
+    elif comp == "BELOW":
+        lo, hi = None, threshold - half
+    elif comp == "ATLEAST":
+        lo, hi = threshold - 0.5, None
+    elif comp == "ATMOST":
+        lo, hi = None, threshold + 0.5
+    elif comp == "EQUALS":
+        lo, hi = threshold - 0.5, threshold + 0.5
+    elif comp == "RANGE":
+        if threshold_high is None:
+            raise ValueError("RANGE comparison requires threshold_high")
+        lo = min(threshold, threshold_high) - 0.5
+        hi = max(threshold, threshold_high) + 0.5
+    else:
+        raise ValueError(f"unknown comparison {comparison!r}")
+    a_f = _to_f(lo, unit) if lo is not None else _NEG_INF
+    b_f = _to_f(hi, unit) if hi is not None else _POS_INF
+    return a_f, b_f
+
+
+VALID_COMPARISONS = ("ABOVE", "BELOW", "ATLEAST", "ATMOST", "EQUALS", "RANGE")
+
+
+# ---------------------------------------------------------------------------
+# Effective-sigma model (the core of v2)
+# ---------------------------------------------------------------------------
+
+def effective_sigma(
+    base_std_f: float,
+    hours_until_target_day: Optional[float],
+    ensemble_std_f: Optional[float],
+    *,
+    lead_time_slope: float = 0.15,
+    lead_time_ref_days: float = 1.0,
+    lead_time_cap_mult: float = 3.0,
+    ensemble_spread_inflation: float = 1.0,
+    ensemble_blend: str = "max",
+    min_sigma_f: float = 1.0,
+) -> dict:
+    """Compute the effective forecast-error standard deviation.
+
+    Components
+    ----------
+    1. Climatological error scaled by lead time. ``base_std_f`` is the typical
+       error of the (bias-corrected) forecast at the reference lead time
+       (about 1 day). Uncertainty grows roughly linearly with additional lead
+       days, capped so it does not explode for very distant dates::
+
+           mult = 1 + slope * max(0, lead_days - ref_days)   (capped at cap_mult)
+           sigma_clim = base_std_f * mult
+
+    2. Live inter-model disagreement (``ensemble_std_f`` = standard deviation of
+       the per-model predicted highs), optionally inflated because ensemble
+       spread tends to under-disperse relative to true error.
+
+    Blending
+    --------
+    - ``"max"`` (default, conservative): use climatology as a floor and let
+      live disagreement widen sigma when models strongly disagree. Avoids
+      double-counting and never shrinks below the climatological estimate.
+    - ``"quad"``: combine the two components in quadrature (treats them as
+      independent sources of uncertainty).
+
+    A hard floor ``min_sigma_f`` is always applied to avoid overconfident
+    probabilities near 0 or 1.
+    """
+    if hours_until_target_day is None or hours_until_target_day < 0:
+        lead_days = lead_time_ref_days
+    else:
+        lead_days = hours_until_target_day / 24.0
+
+    lead_mult = 1.0 + lead_time_slope * max(0.0, lead_days - lead_time_ref_days)
+    lead_mult = min(lead_mult, lead_time_cap_mult)
+    sigma_clim = base_std_f * lead_mult
+
+    spread_component = None
+    if ensemble_std_f is not None and ensemble_std_f > 0:
+        spread_component = ensemble_spread_inflation * ensemble_std_f
+
+    if spread_component is None:
+        sigma = sigma_clim
+    elif ensemble_blend == "quad":
+        sigma = math.sqrt(sigma_clim ** 2 + spread_component ** 2)
+    else:  # "max"
+        sigma = max(sigma_clim, spread_component)
+
+    sigma = max(sigma, min_sigma_f)
+
+    return {
+        "sigma": float(sigma),
+        "sigma_climatological": float(sigma_clim),
+        "lead_days": float(lead_days),
+        "lead_multiplier": float(lead_mult),
+        "ensemble_std_f": float(ensemble_std_f) if ensemble_std_f is not None else None,
+        "ensemble_blend": ensemble_blend,
+    }
+
+
+def _sigma_params_from_config(cfg: "Config") -> dict:
+    d = cfg.defaults or {}
+    return {
+        "lead_time_slope": float(d.get("lead_time_slope", 0.15)),
+        "lead_time_ref_days": float(d.get("lead_time_ref_days", 1.0)),
+        "lead_time_cap_mult": float(d.get("lead_time_cap_mult", 3.0)),
+        "ensemble_spread_inflation": float(d.get("ensemble_spread_inflation", 1.0)),
+        "ensemble_blend": str(d.get("ensemble_blend", "max")),
+        "min_sigma_f": float(d.get("min_sigma_f", 1.0)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public model entry point
+# ---------------------------------------------------------------------------
+
+def model_probability_above(
+    predicted_high_f: float,
+    threshold_f: float,
+    hours_until_target_day: Optional[float],
+    station: str,
+    integer_settlement_mode: bool = True,
+    ensemble_std_f: Optional[float] = None,
+    method: str = "normal_error_v2",
+    direction: str = "ABOVE",
+    comparison: Optional[str] = None,
+    unit: str = "F",
+    threshold_high_f: Optional[float] = None,
+    cfg: Optional["Config"] = None,
+) -> dict:
+    """Probability that the contract resolves YES.
+
+    Models the settled value (high/low/avg, supplied via ``predicted_high_f``,
+    in deg F) as Normal(mu, sigma) and integrates the probability mass inside the
+    contract's outcome band.
+
+    Parameters
+    ----------
+    predicted_high_f:
+        Point forecast of the contract's underlying value (ensemble mean), deg F.
+    threshold_f:
+        Contract threshold, expressed in ``unit`` (despite the ``_f`` suffix kept
+        for backward compatibility).
+    comparison:
+        One of ABOVE/BELOW/ATLEAST/ATMOST/EQUALS/RANGE. If omitted, falls back to
+        ``direction`` (ABOVE/BELOW) for backward compatibility.
+    unit:
+        ``"F"`` (default) or ``"C"`` -- the unit of ``threshold_f`` /
+        ``threshold_high_f``. The forecast and sigma are always in deg F.
+    threshold_high_f:
+        Upper bound for RANGE contracts (in ``unit``).
+    integer_settlement_mode:
+        Apply whole-degree rounding boundaries (+/-0.5).
+    hours_until_target_day:
+        Hours from the snapshot to the target day. v2 scales uncertainty with it.
+    ensemble_std_f:
+        Std of the per-model predicted values (live disagreement). v2 only.
+    method:
+        ``"normal_error_v2"`` (default) or ``"normal_error_v1"`` (legacy).
+    cfg:
+        Optional preloaded config (avoids re-reading YAML on every call).
+    """
+    if cfg is None:
+        from src.config import load_config  # lazy: keeps pure sigma logic import-light
+        cfg = load_config(Path(__file__).parent.parent / "config.yaml")
     station_cfg = cfg.stations.get(station)
     if not station_cfg:
         raise KeyError(f"Station config not found: {station}")
+
+    comparison = (comparison or direction or "ABOVE").upper()
+    if comparison not in VALID_COMPARISONS:
+        raise ValueError(f"comparison must be one of {VALID_COMPARISONS}, got {comparison!r}")
+
     bias = station_cfg.station_bias_f
-    error_std = station_cfg.error_std_f
-    # For version 1, ignore hours_until_target_day but keep parameter for future updates
+    base_std = station_cfg.error_std_f
     mu = predicted_high_f + bias
-    if integer_settlement_mode:
-        # Settlement compares to integer; model rounding by using threshold + 0.5
-        effective_threshold = threshold_f + 0.5
+
+    if method == "normal_error_v1":
+        sigma = base_std
+        sigma_info = {
+            "sigma": float(sigma),
+            "sigma_climatological": float(sigma),
+            "lead_days": None,
+            "lead_multiplier": 1.0,
+            "ensemble_std_f": None,
+            "ensemble_blend": None,
+        }
     else:
-        effective_threshold = threshold_f
-    # model_prob_yes = P(final_high > effective_threshold)
-    # For continuous normal, P(X > t) = 1 - CDF((t - mu)/sigma)
-    z = (effective_threshold - mu) / error_std
-    prob_yes = 1.0 - norm.cdf(z)
-    prob_no = 1.0 - prob_yes
+        method = "normal_error_v2"
+        sigma_info = effective_sigma(
+            base_std_f=base_std,
+            hours_until_target_day=hours_until_target_day,
+            ensemble_std_f=ensemble_std_f,
+            **_sigma_params_from_config(cfg),
+        )
+        sigma = sigma_info["sigma"]
+
+    a_f, b_f = contract_bounds_f(
+        comparison, threshold_f, threshold_high=threshold_high_f, unit=unit,
+        integer_settlement_mode=integer_settlement_mode,
+    )
+    # P(a_f <= value < b_f) = Phi((b_f - mu)/sigma) - Phi((a_f - mu)/sigma)
+    cdf_hi = 1.0 if b_f == _POS_INF else _norm_cdf((b_f - mu) / sigma)
+    cdf_lo = 0.0 if a_f == _NEG_INF else _norm_cdf((a_f - mu) / sigma)
+    prob_yes = float(max(0.0, min(1.0, cdf_hi - cdf_lo)))
+    prob_no = float(1.0 - prob_yes)
+
+    # The single "effective threshold" only makes sense for one-sided contracts.
+    if comparison in ("ABOVE", "ATLEAST"):
+        effective_threshold = a_f
+    elif comparison in ("BELOW", "ATMOST"):
+        effective_threshold = b_f
+    else:
+        effective_threshold = None
+
     return {
-        "model_prob_yes": float(prob_yes),
-        "model_prob_no": float(prob_no),
+        "model_prob_yes": prob_yes,
+        "model_prob_no": prob_no,
         "predicted_high_f": float(predicted_high_f),
-        "error_std_f": float(error_std),
+        "comparison": comparison,
+        "direction": comparison,  # kept for backward compatibility
+        "unit": str(unit).upper(),
+        "band_lo_f": None if a_f == _NEG_INF else float(a_f),
+        "band_hi_f": None if b_f == _POS_INF else float(b_f),
+        "effective_threshold_f": float(effective_threshold) if effective_threshold is not None else None,
+        "error_std_f": float(sigma),
+        "base_error_std_f": float(base_std),
         "station_bias_f": float(bias),
-        "method": "normal_error_v1",
+        "lead_days": sigma_info["lead_days"],
+        "lead_multiplier": sigma_info["lead_multiplier"],
+        "ensemble_std_f": sigma_info["ensemble_std_f"],
+        "method": method,
     }
