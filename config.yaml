@@ -36,7 +36,7 @@ stations:
     error_std_f: 2.5
   # --- Polymarket daily-high cities (coords are city/airport approximations;
   #     verify each market's official settlement source/station before trading) ---
-  SEOUL:       {city: Seoul,         lat: 37.5665,  lon: 126.9780, timezone: Asia/Seoul,        station_bias_f: 0.0, error_std_f: 2.5}
+  SEOUL:       {city: Seoul,         lat: 37.4602,  lon: 126.4407, timezone: Asia/Seoul,        station_bias_f: 0.0, error_std_f: 2.5}  # settles on Incheon Intl Airport (RKSI), not city center
   HONGKONG:    {city: Hong Kong,     lat: 22.3193,  lon: 114.1694, timezone: Asia/Hong_Kong,    station_bias_f: 0.0, error_std_f: 2.5}
   TAIPEI:      {city: Taipei,        lat: 25.0330,  lon: 121.5654, timezone: Asia/Taipei,       station_bias_f: 0.0, error_std_f: 2.5}
   CHONGQING:   {city: Chongqing,     lat: 29.5630,  lon: 106.5516, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
