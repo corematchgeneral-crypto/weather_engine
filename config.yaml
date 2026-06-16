@@ -1,74 +1,46 @@
 stations:
-  KMDW:
-    city: Chicago
-    lat: 41.7868
-    lon: -87.7522
-    timezone: America/Chicago
-    station_bias_f: 0.0
-    error_std_f: 2.5
-  KLGA:
-    city: New York
-    lat: 40.7769
-    lon: -73.8740
-    timezone: America/New_York
-    station_bias_f: 0.0
-    error_std_f: 2.8
-  KLAX:
-    city: Los Angeles
-    lat: 33.9416
-    lon: -118.4085
-    timezone: America/Los_Angeles
-    station_bias_f: 0.0
-    error_std_f: 2.0
-  KSFO:
-    city: San Francisco
-    lat: 37.6213
-    lon: -122.3790
-    timezone: America/Los_Angeles
-    station_bias_f: 0.0
-    error_std_f: 2.2
-  KATL:
-    city: Atlanta
-    lat: 33.6367
-    lon: -84.4281
-    timezone: America/New_York
-    station_bias_f: 0.0
-    error_std_f: 2.5
-  # --- Polymarket daily-high cities (coords are city/airport approximations;
-  #     verify each market's official settlement source/station before trading) ---
-  SEOUL:       {city: Seoul,         lat: 37.4602,  lon: 126.4407, timezone: Asia/Seoul,        station_bias_f: 0.0, error_std_f: 2.5}  # settles on Incheon Intl Airport (RKSI), not city center
-  HONGKONG:    {city: Hong Kong,     lat: 22.3193,  lon: 114.1694, timezone: Asia/Hong_Kong,    station_bias_f: 0.0, error_std_f: 2.5}
-  TAIPEI:      {city: Taipei,        lat: 25.0330,  lon: 121.5654, timezone: Asia/Taipei,       station_bias_f: 0.0, error_std_f: 2.5}
-  CHONGQING:   {city: Chongqing,     lat: 29.5630,  lon: 106.5516, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
-  PARIS:       {city: Paris,         lat: 48.8566,  lon: 2.3522,   timezone: Europe/Paris,      station_bias_f: 0.0, error_std_f: 2.5}
-  LONDON:      {city: London,        lat: 51.5074,  lon: -0.1278,  timezone: Europe/London,     station_bias_f: 0.0, error_std_f: 2.5}
-  KUALALUMPUR: {city: Kuala Lumpur,  lat: 3.1390,   lon: 101.6869, timezone: Asia/Kuala_Lumpur, station_bias_f: 0.0, error_std_f: 2.5}
-  HELSINKI:    {city: Helsinki,      lat: 60.1699,  lon: 24.9384,  timezone: Europe/Helsinki,   station_bias_f: 0.0, error_std_f: 2.5}
-  MUNICH:      {city: Munich,        lat: 48.1351,  lon: 11.5820,  timezone: Europe/Berlin,     station_bias_f: 0.0, error_std_f: 2.5}
-  SHANGHAI:    {city: Shanghai,      lat: 31.2304,  lon: 121.4737, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
-  JEDDAH:      {city: Jeddah,        lat: 21.4858,  lon: 39.1925,  timezone: Asia/Riyadh,       station_bias_f: 0.0, error_std_f: 2.5}
-  MILAN:       {city: Milan,         lat: 45.4642,  lon: 9.1900,   timezone: Europe/Rome,       station_bias_f: 0.0, error_std_f: 2.5}
-  BEIJING:     {city: Beijing,       lat: 39.9042,  lon: 116.4074, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
-  SHENZHEN:    {city: Shenzhen,      lat: 22.5431,  lon: 114.0579, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
-  CHENGDU:     {city: Chengdu,       lat: 30.5728,  lon: 104.0668, timezone: Asia/Shanghai,     station_bias_f: 0.0, error_std_f: 2.5}
-  WELLINGTON:  {city: Wellington,    lat: -41.2865, lon: 174.7762, timezone: Pacific/Auckland,  station_bias_f: 0.0, error_std_f: 2.5}
-  TOKYO:       {city: Tokyo,         lat: 35.6762,  lon: 139.6503, timezone: Asia/Tokyo,        station_bias_f: 0.0, error_std_f: 2.5}
-  MIAMI:       {city: Miami,         lat: 25.7617,  lon: -80.1918, timezone: America/New_York,  station_bias_f: 0.0, error_std_f: 2.5}
-  LUCKNOW:     {city: Lucknow,       lat: 26.8467,  lon: 80.9462,  timezone: Asia/Kolkata,      station_bias_f: 0.0, error_std_f: 2.5}
-  TELAVIV:     {city: Tel Aviv,      lat: 32.0853,  lon: 34.7818,  timezone: Asia/Jerusalem,    station_bias_f: 0.0, error_std_f: 2.5}
-  AMSTERDAM:   {city: Amsterdam,     lat: 52.3676,  lon: 4.9041,   timezone: Europe/Amsterdam,  station_bias_f: 0.0, error_std_f: 2.5}
-  MADRID:      {city: Madrid,        lat: 40.4168,  lon: -3.7038,  timezone: Europe/Madrid,     station_bias_f: 0.0, error_std_f: 2.5}
-  SEATTLE:     {city: Seattle,       lat: 47.6062,  lon: -122.3321,timezone: America/Los_Angeles,station_bias_f: 0.0, error_std_f: 2.5}
-  ANKARA:      {city: Ankara,        lat: 39.9334,  lon: 32.8597,  timezone: Europe/Istanbul,   station_bias_f: 0.0, error_std_f: 2.5}
-  MOSCOW:      {city: Moscow,        lat: 55.7558,  lon: 37.6173,  timezone: Europe/Moscow,     station_bias_f: 0.0, error_std_f: 2.5}
-  WARSAW:      {city: Warsaw,        lat: 52.2297,  lon: 21.0122,  timezone: Europe/Warsaw,     station_bias_f: 0.0, error_std_f: 2.5}
-  TORONTO:     {city: Toronto,       lat: 43.6532,  lon: -79.3832, timezone: America/Toronto,   station_bias_f: 0.0, error_std_f: 2.5}
-  HOUSTON:     {city: Houston,       lat: 29.7604,  lon: -95.3698, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
-  AUSTIN:      {city: Austin,        lat: 30.2672,  lon: -97.7431, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
-  DALLAS:      {city: Dallas,        lat: 32.7767,  lon: -96.7970, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
-  SAOPAULO:    {city: Sao Paulo,     lat: -23.5505, lon: -46.6333, timezone: America/Sao_Paulo, station_bias_f: 0.0, error_std_f: 2.5}
-  BUENOSAIRES: {city: Buenos Aires,  lat: -34.6037, lon: -58.3816, timezone: America/Argentina/Buenos_Aires, station_bias_f: 0.0, error_std_f: 2.5}
-  DENVER:      {city: Denver,        lat: 39.7392,  lon: -104.9903,timezone: America/Denver,    station_bias_f: 0.0, error_std_f: 2.5}
+  # Each city should use the EXACT station the market settles on (a Wunderground
+  # airport, NOT the city center -- city-center coords bias hot, as Seoul proved).
+  # [OK] = confirmed from a market's resolution rules; [VERIFY] = best-guess primary
+  # airport -> confirm via the market's "resolution source" line before trading.
+  KMDW:        {city: Chicago,       lat: 41.7868,  lon: -87.7522, timezone: America/Chicago,     station_bias_f: 0.0, error_std_f: 2.5}  # Chicago Midway KMDW [VERIFY: O'Hare KORD?]
+  KLGA:        {city: New York,      lat: 40.7769,  lon: -73.8740, timezone: America/New_York,    station_bias_f: 0.0, error_std_f: 2.5}  # LaGuardia KLGA [VERIFY: Central Park KNYC?]
+  KLAX:        {city: Los Angeles,   lat: 33.9416,  lon: -118.4085, timezone: America/Los_Angeles, station_bias_f: 0.0, error_std_f: 2.0}  # LAX [VERIFY]
+  KSFO:        {city: San Francisco, lat: 37.6213,  lon: -122.3790, timezone: America/Los_Angeles, station_bias_f: 0.0, error_std_f: 2.2}  # SFO [VERIFY]
+  KATL:        {city: Atlanta,       lat: 33.6367,  lon: -84.4281, timezone: America/New_York,    station_bias_f: 0.0, error_std_f: 2.5}  # Hartsfield KATL [VERIFY]
+  SEOUL:       {city: Seoul,         lat: 37.4602,  lon: 126.4407, timezone: Asia/Seoul,          station_bias_f: 0.0, error_std_f: 2.5}  # Incheon RKSI [OK - confirmed from rules]
+  HONGKONG:    {city: Hong Kong,     lat: 22.3089,  lon: 113.9145, timezone: Asia/Hong_Kong,      station_bias_f: 0.0, error_std_f: 2.5}  # HK Intl VHHH [VERIFY]
+  TAIPEI:      {city: Taipei,        lat: 25.0777,  lon: 121.2328, timezone: Asia/Taipei,         station_bias_f: 0.0, error_std_f: 2.5}  # Taoyuan RCTP [VERIFY: Songshan RCSS?]
+  CHONGQING:   {city: Chongqing,     lat: 29.7192,  lon: 106.6417, timezone: Asia/Shanghai,       station_bias_f: 0.0, error_std_f: 2.5}  # Jiangbei ZUCK [VERIFY]
+  PARIS:       {city: Paris,         lat: 49.0097,  lon: 2.5479,   timezone: Europe/Paris,        station_bias_f: 0.0, error_std_f: 2.5}  # CDG LFPG [VERIFY: Orly/Montsouris?]
+  LONDON:      {city: London,        lat: 51.4700,  lon: -0.4543,  timezone: Europe/London,       station_bias_f: 0.0, error_std_f: 2.5}  # Heathrow EGLL [VERIFY: City/Gatwick?]
+  KUALALUMPUR: {city: Kuala Lumpur,  lat: 2.7456,   lon: 101.7099, timezone: Asia/Kuala_Lumpur,   station_bias_f: 0.0, error_std_f: 2.5}  # KLIA WMKK [VERIFY: Subang WMSA?]
+  HELSINKI:    {city: Helsinki,      lat: 60.3172,  lon: 24.9633,  timezone: Europe/Helsinki,     station_bias_f: 0.0, error_std_f: 2.5}  # Vantaa EFHK [VERIFY]
+  MUNICH:      {city: Munich,        lat: 48.3538,  lon: 11.7861,  timezone: Europe/Berlin,       station_bias_f: 0.0, error_std_f: 2.5}  # Munich EDDM [VERIFY]
+  SHANGHAI:    {city: Shanghai,      lat: 31.1443,  lon: 121.8083, timezone: Asia/Shanghai,       station_bias_f: 0.0, error_std_f: 2.5}  # Pudong ZSPD [VERIFY: Hongqiao ZSSS?]
+  JEDDAH:      {city: Jeddah,        lat: 21.6796,  lon: 39.1565,  timezone: Asia/Riyadh,         station_bias_f: 0.0, error_std_f: 2.5}  # King Abdulaziz OEJN [VERIFY]
+  MILAN:       {city: Milan,         lat: 45.6306,  lon: 8.7281,   timezone: Europe/Rome,         station_bias_f: 0.0, error_std_f: 2.5}  # Malpensa LIMC [VERIFY: Linate LIML?]
+  BEIJING:     {city: Beijing,       lat: 40.0799,  lon: 116.5853, timezone: Asia/Shanghai,       station_bias_f: 0.0, error_std_f: 2.5}  # Capital ZBAA [VERIFY]
+  SHENZHEN:    {city: Shenzhen,      lat: 22.6393,  lon: 113.8108, timezone: Asia/Shanghai,       station_bias_f: 0.0, error_std_f: 2.5}  # Bao'an ZGSZ [VERIFY]
+  CHENGDU:     {city: Chengdu,       lat: 30.5785,  lon: 103.9471, timezone: Asia/Shanghai,       station_bias_f: 0.0, error_std_f: 2.5}  # Shuangliu ZUUU [VERIFY: Tianfu ZUTF?]
+  WELLINGTON:  {city: Wellington,    lat: -41.3272, lon: 174.8053, timezone: Pacific/Auckland,    station_bias_f: 0.0, error_std_f: 2.5}  # Wellington NZWN [VERIFY]
+  TOKYO:       {city: Tokyo,         lat: 35.5494,  lon: 139.7798, timezone: Asia/Tokyo,          station_bias_f: 0.0, error_std_f: 2.5}  # Haneda RJTT [VERIFY: Narita RJAA?]
+  MIAMI:       {city: Miami,         lat: 25.7959,  lon: -80.2870, timezone: America/New_York,    station_bias_f: 0.0, error_std_f: 2.5}  # Miami Intl KMIA [VERIFY]
+  LUCKNOW:     {city: Lucknow,       lat: 26.7606,  lon: 80.8893,  timezone: Asia/Kolkata,        station_bias_f: 0.0, error_std_f: 2.5}  # Amausi VILK [VERIFY]
+  TELAVIV:     {city: Tel Aviv,      lat: 32.0114,  lon: 34.8867,  timezone: Asia/Jerusalem,      station_bias_f: 0.0, error_std_f: 2.5}  # Ben Gurion LLBG [VERIFY]
+  AMSTERDAM:   {city: Amsterdam,     lat: 52.3105,  lon: 4.7683,   timezone: Europe/Amsterdam,    station_bias_f: 0.0, error_std_f: 2.5}  # Schiphol EHAM [VERIFY]
+  MADRID:      {city: Madrid,        lat: 40.4719,  lon: -3.5626,  timezone: Europe/Madrid,       station_bias_f: 0.0, error_std_f: 2.5}  # Barajas LEMD [VERIFY]
+  SEATTLE:     {city: Seattle,       lat: 47.4502,  lon: -122.3088, timezone: America/Los_Angeles, station_bias_f: 0.0, error_std_f: 2.5}  # Sea-Tac KSEA [VERIFY]
+  ANKARA:      {city: Ankara,        lat: 40.1281,  lon: 32.9951,  timezone: Europe/Istanbul,     station_bias_f: 0.0, error_std_f: 2.5}  # Esenboga LTAC [VERIFY]
+  MOSCOW:      {city: Moscow,        lat: 55.9726,  lon: 37.4146,  timezone: Europe/Moscow,       station_bias_f: 0.0, error_std_f: 2.5}  # Sheremetyevo UUEE [VERIFY: Domodedovo UUDD?]
+  WARSAW:      {city: Warsaw,        lat: 52.1657,  lon: 20.9671,  timezone: Europe/Warsaw,       station_bias_f: 0.0, error_std_f: 2.5}  # Chopin EPWA [VERIFY]
+  TORONTO:     {city: Toronto,       lat: 43.6777,  lon: -79.6248, timezone: America/Toronto,     station_bias_f: 0.0, error_std_f: 2.5}  # Pearson CYYZ [VERIFY]
+  HOUSTON:     {city: Houston,       lat: 29.9902,  lon: -95.3368, timezone: America/Chicago,     station_bias_f: 0.0, error_std_f: 2.5}  # Bush KIAH [VERIFY: Hobby KHOU?]
+  AUSTIN:      {city: Austin,        lat: 30.1975,  lon: -97.6664, timezone: America/Chicago,     station_bias_f: 0.0, error_std_f: 2.5}  # Austin-Bergstrom KAUS [VERIFY]
+  DALLAS:      {city: Dallas,        lat: 32.8998,  lon: -97.0403, timezone: America/Chicago,     station_bias_f: 0.0, error_std_f: 2.5}  # DFW KDFW [VERIFY: Love KDAL?]
+  SAOPAULO:    {city: Sao Paulo,     lat: -23.4356, lon: -46.4731, timezone: America/Sao_Paulo,   station_bias_f: 0.0, error_std_f: 2.5}  # Guarulhos SBGR [VERIFY: Congonhas SBSP?]
+  BUENOSAIRES: {city: Buenos Aires,  lat: -34.8222, lon: -58.5358, timezone: America/Argentina/Buenos_Aires, station_bias_f: 0.0, error_std_f: 2.5}  # Ezeiza SAEZ [VERIFY: Aeroparque SABE?]
+  DENVER:      {city: Denver,        lat: 39.8561,  lon: -104.6737, timezone: America/Denver,     station_bias_f: 0.0, error_std_f: 2.5}  # Denver Intl KDEN [VERIFY]
 
 defaults:
   fee_buffer: 0.03
