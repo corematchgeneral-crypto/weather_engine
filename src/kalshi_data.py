@@ -76,3 +76,16 @@ def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int =
         if not cursor:
             break
     return out
+
+
+def fetch_raw_sample(limit: int = 5, timeout: int = 20) -> List[Dict[str, Any]]:
+    """Return a few RAW Kalshi market dicts (for inspecting field names)."""
+    import requests  # lazy
+    headers = {"Accept": "application/json"}
+    token = os.environ.get("KALSHI_API_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    r = requests.get(f"{KALSHI_BASE}/markets", params={"status": "open", "limit": limit}, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    return (data.get("markets", []) if isinstance(data, dict) else [])[:limit]

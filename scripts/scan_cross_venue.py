@@ -36,7 +36,34 @@ def main():
     parser.add_argument("--fee", type=float, default=0.0, help="per-leg fee assumption (dollars)")
     parser.add_argument("--max-pages", type=int, default=20)
     parser.add_argument("--top", type=int, default=40)
+    parser.add_argument("--debug", action="store_true", help="dump raw field names from each venue and exit")
     args = parser.parse_args()
+
+    if args.debug:
+        import json
+        from src.kalshi_data import fetch_raw_sample as kalshi_raw
+        from src.polymarket_data import POLY_MARKETS_URL
+        import requests
+        print("=== RAW KALSHI market (first 2) ===")
+        try:
+            for m in kalshi_raw(limit=2):
+                print("KEYS:", sorted(m.keys()))
+                print(json.dumps(m, indent=2)[:1500])
+                print("-" * 40)
+        except Exception as e:
+            print("kalshi raw failed:", e)
+        print("=== RAW POLYMARKET market (first 2) ===")
+        try:
+            r = requests.get(POLY_MARKETS_URL, params={"active": "true", "closed": "false", "limit": 2}, timeout=20)
+            data = r.json()
+            mk = data if isinstance(data, list) else data.get("markets", data.get("data", []))
+            for m in mk[:2]:
+                print("KEYS:", sorted(m.keys()))
+                print(json.dumps(m, indent=2)[:1500])
+                print("-" * 40)
+        except Exception as e:
+            print("polymarket raw failed:", e)
+        return
 
     print("Fetching Polymarket active markets ...")
     try:
