@@ -79,6 +79,7 @@ defaults:
   # Guards against false signals:
   suppress_same_day: true        # skip markets resolving today (market has intraday info the daily forecast lacks)
   suppress_bucket_agreement: true # on bucket ladders, skip trades when the model's favorite bucket == the market's favorite
+  bucket_min_separation_f: 2.7   # on bucket ladders, require model vs market favorite to differ by >= this (deg F ~= 1.5C); else it's forecast noise
   # --- v2 probability model: lead-time + ensemble-spread aware uncertainty ---
   # Effective sigma = base station error_std scaled by lead time, widened by
   # live model disagreement (ensemble spread), floored at min_sigma_f.

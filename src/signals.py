@@ -4,7 +4,7 @@ import math
 import hashlib
 import json
 from src.market_data import load_market_csv
-from src.probability_model import model_probability_above
+from src.probability_model import model_probability_above, contract_bounds_f
 from src.config import load_config
 from src.market_validation import validate_market_row
 from datetime import datetime, timezone
@@ -41,16 +41,42 @@ def _ensure_csv(path: Path, columns: list[str]):
 _BUCKET_COMPARISONS = {"EQUALS", "RANGE", "ATLEAST", "ATMOST"}
 
 
-def _suppress_bucket_agreement(out: "pd.DataFrame") -> "pd.DataFrame":
-    """Drop false bucket-market edges.
+def _bucket_center_f(row) -> "Optional[float]":
+    """Midpoint (deg F) of a contract's outcome band, for measuring separation."""
+    try:
+        thr = float(row.get("threshold_f"))
+    except Exception:
+        return None
+    thr_hi = row.get("threshold_high")
+    try:
+        thr_hi = float(thr_hi) if (thr_hi is not None and not pd.isna(thr_hi)) else None
+    except Exception:
+        thr_hi = None
+    comp = str(row.get("comparison", "EQUALS")).upper()
+    unit = str(row.get("unit", "F")).upper()
+    try:
+        a, b = contract_bounds_f(comp, thr, thr_hi, unit, True)
+    except Exception:
+        return None
+    if a != float("-inf") and b != float("inf"):
+        return (a + b) / 2.0
+    if a != float("-inf"):
+        return a
+    if b != float("inf"):
+        return b
+    return None
 
-    On multi-bucket events (Polymarket ladders), the model's forecast error is
-    often wider than a 1-degree bucket, so it spreads probability across several
-    buckets and reports an apparent "edge" against whichever bucket the market
-    favors -- even when the model's own most-likely bucket is the SAME one the
-    market favors. That is under-confidence, not skill. When the model and the
-    market agree on the most-likely bucket, suppress all BUY signals in that
-    event (a real edge requires the forecast to point at a DIFFERENT bucket).
+
+def _suppress_bucket_agreement(out: "pd.DataFrame", min_separation_f: float = 2.7) -> "pd.DataFrame":
+    """Drop bucket-market signals where the forecast is too close to the market.
+
+    On multi-bucket ladders, if the model's most-likely bucket is within
+    ``min_separation_f`` of the market's most-likely bucket, the "edge" is just
+    forecast noise (our error is ~1 degree, the same size as a bucket), not skill.
+    A real bucket-market edge requires the forecast to point at a clearly
+    DIFFERENT part of the distribution than the crowd. (NOTE: a large gap can
+    still be a station/location bias rather than a true edge -- validate before
+    trading.)
     """
     if out.empty or "comparison" not in out.columns:
         return out
@@ -67,20 +93,18 @@ def _suppress_bucket_agreement(out: "pd.DataFrame") -> "pd.DataFrame":
         ya = pd.to_numeric(g["yes_ask"], errors="coerce")
         if mp.notna().sum() == 0 or ya.notna().sum() == 0:
             continue
-        model_fav = out.loc[mp.idxmax()]
-        market_fav = out.loc[ya.idxmax()]
-        same_bucket = (
-            model_fav.get("threshold_f") == market_fav.get("threshold_f")
-            and str(model_fav.get("threshold_high")) == str(market_fav.get("threshold_high"))
-            and str(model_fav.get("comparison")) == str(market_fav.get("comparison"))
-        )
-        if same_bucket:
+        c_model = _bucket_center_f(out.loc[mp.idxmax()])
+        c_market = _bucket_center_f(out.loc[ya.idxmax()])
+        if c_model is None or c_market is None:
+            continue
+        if abs(c_model - c_market) < min_separation_f:
             for i in idx:
                 if out.at[i, "signal"] in ("BUY_YES", "BUY_NO"):
                     out.at[i, "signal"] = "NO_TRADE"
                     out.at[i, "best_side"] = None
                     prev = out.at[i, "signal_reason"]
-                    note = "SUPPRESSED(model agrees with market favorite bucket; no directional edge)"
+                    note = (f"SUPPRESSED(forecast within {min_separation_f:.1f}F of market favorite; "
+                            f"sub-resolution / no real bucket edge)")
                     out.at[i, "signal_reason"] = (str(prev) + "; " if prev else "") + note
     return out
 
@@ -95,6 +119,7 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         min_volume = cfg.defaults.get("min_market_volume", 0)
     suppress_same_day = bool(cfg.defaults.get("suppress_same_day", True))
     suppress_bucket_agreement = bool(cfg.defaults.get("suppress_bucket_agreement", True))
+    bucket_min_separation_f = float(cfg.defaults.get("bucket_min_separation_f", 2.7))
 
     market_df = load_market_csv(market_csv_path)
     # Ensure dates and timestamps
@@ -427,9 +452,9 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
     if not out.empty:
         out = out.drop_duplicates(subset=["signal_id"])
 
-    # Suppress false bucket-market edges (model agrees with market favorite)
+    # Suppress false bucket-market edges (forecast too close to market favorite)
     if suppress_bucket_agreement and not out.empty:
-        out = _suppress_bucket_agreement(out)
+        out = _suppress_bucket_agreement(out, min_separation_f=bucket_min_separation_f)
 
     # Append non-duplicate signals to data/signals.csv
     if signals_path.exists():
