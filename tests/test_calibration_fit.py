@@ -60,3 +60,15 @@ def test_write_station_calibration(tmp_path):
     df = pd.read_csv(calib)
     assert list(df.columns) == ["station", "station_bias_f", "error_std_f"]
     assert df.iloc[0]["station"] == "KMDW"
+
+
+
+def test_summarize_forecast_errors():
+    from src.calibration_fit import summarize_forecast_errors
+    # model runs +5F hot on average -> bias correction should be -5
+    s = summarize_forecast_errors([5, 5, 5, 5])
+    assert s["n"] == 4 and s["station_bias_f"] == -5.0 and s["mae_f"] == 5.0
+    s2 = summarize_forecast_errors([4, 6, 5, 5])
+    assert s2["station_bias_f"] == -5.0
+    assert summarize_forecast_errors([]) is None
+    assert summarize_forecast_errors([None, float("nan")]) is None

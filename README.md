@@ -136,6 +136,20 @@ Set `method="normal_error_v1"` to fall back to the legacy fixed-sigma model.
 The goal is to see, as data accumulates, how accurate the engine is — without
 placing any trades.
 
+### Calibrate cities first (recommended before trusting signals)
+
+```bash
+python -m scripts.calibrate_stations --days 21          # preview per-city bias + error spread
+python -m scripts.calibrate_stations --days 21 --apply  # write data/calibration.csv
+```
+
+This compares each city's archived past forecasts to observed actuals and sets a
+per-city `station_bias_f` (bias correction) and `error_std_f` (realistic
+uncertainty). It corrects model bias and right-sizes the bucket probabilities.
+A residual location mismatch (our coordinate vs the market's official station)
+is only fully corrected by the settlement loop below.
+
+### Then the settlement loop
 1. Generate signals over time (writes `data/signals.csv`, archives snapshots):
 
    ```bash

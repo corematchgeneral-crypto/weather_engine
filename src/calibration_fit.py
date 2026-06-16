@@ -14,8 +14,31 @@ that the fit improves automatically as more days accumulate.
 
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+import math
+import statistics
 import numpy as np
 import pandas as pd
+
+
+def summarize_forecast_errors(errors: List[Optional[float]]) -> Optional[Dict[str, Any]]:
+    """Summarize a list of (forecast - actual) errors in deg F.
+
+    Returns mean error, the bias correction to apply (``station_bias_f`` =
+    -mean_error, so ``forecast + bias`` is unbiased), and the error std (used as
+    ``error_std_f``). Returns None if there are no usable errors.
+    """
+    errs = [float(e) for e in errors if e is not None and not (isinstance(e, float) and math.isnan(e))]
+    if not errs:
+        return None
+    mean_err = statistics.fmean(errs)
+    std = statistics.stdev(errs) if len(errs) >= 2 else float("nan")
+    return {
+        "n": len(errs),
+        "mean_error_f": round(mean_err, 3),
+        "mae_f": round(statistics.fmean([abs(e) for e in errs]), 3),
+        "station_bias_f": round(-mean_err, 3),
+        "error_std_f": round(std, 3) if not math.isnan(std) else "",
+    }
 
 
 def _read_csv_optional(path: Path) -> pd.DataFrame:

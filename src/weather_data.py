@@ -229,3 +229,41 @@ def fetch_actual_high_low_f(station: str, target_date: date) -> Dict[str, Option
 def fetch_actual_high_f(station: str, target_date: date) -> Optional[float]:
     """Backward-compatible helper: observed daily high (deg F), archive proxy."""
     return fetch_actual_high_low_f(station, target_date)["high"]
+
+
+
+ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+
+
+def _fetch_daily_max_f(station: str, start_date, end_date, base_url: str, timeout: int = 30) -> Dict[str, Optional[float]]:
+    """Fetch daily max temperature (deg F) keyed by ISO date from an Open-Meteo endpoint."""
+    cfg = load_config(Path(__file__).parent.parent / "config.yaml")
+    s = cfg.stations.get(station)
+    if not s:
+        raise KeyError(f"Station {station} not in config")
+    params = {
+        "latitude": s.lat,
+        "longitude": s.lon,
+        "timezone": s.timezone,
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "daily": "temperature_2m_max",
+    }
+    r = requests.get(base_url, params=params, timeout=timeout)
+    r.raise_for_status()
+    daily = r.json().get("daily", {})
+    out: Dict[str, Optional[float]] = {}
+    for t, v in zip(daily.get("time", []), daily.get("temperature_2m_max", [])):
+        out[t] = c_to_f(float(v)) if v is not None else None
+    return out
+
+
+def fetch_archive_highs(station: str, start_date, end_date) -> Dict[str, Optional[float]]:
+    """Observed daily highs (deg F) from the Open-Meteo archive (reanalysis)."""
+    return _fetch_daily_max_f(station, start_date, end_date, ARCHIVE_URL)
+
+
+def fetch_historical_forecast_highs(station: str, start_date, end_date) -> Dict[str, Optional[float]]:
+    """The model's archived past forecasts of daily highs (deg F)."""
+    return _fetch_daily_max_f(station, start_date, end_date, HISTORICAL_FORECAST_URL)

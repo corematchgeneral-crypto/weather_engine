@@ -48,8 +48,9 @@ def rank_and_print(market_csv, top=20, min_edge=None):
     forecasts = fetch_forecasts_for_stations(known, start, end)
     print(f"Forecast rows: {len(forecasts)}")
 
-    data_dir = base / "data" / "market_runs"
-    out = generate_signals(market_csv, forecasts, data_dir=data_dir)
+    # Archive to the main data/ dir so the calibration loop (backfill_settlements
+    # -> fit_calibration -> run_accuracy_report) sees these forecasts/signals.
+    out = generate_signals(market_csv, forecasts)
     if out.empty:
         print("No signals produced (no forecast/station overlap?).")
         return
