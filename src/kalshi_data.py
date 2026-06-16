@@ -53,15 +53,21 @@ def normalize_kalshi_market(m: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _is_multivariate(m: Dict[str, Any]) -> bool:
-    """Skip multivariate / parlay markets (their sub-titles are leg lists, not questions)."""
-    if m.get("mve_selected_legs"):
+    """Skip multivariate / parlay / provisional markets (auto-generated sports junk)."""
+    if m.get("mve_selected_legs") or m.get("is_provisional"):
         return True
     et = str(m.get("event_ticker") or "")
     return et.startswith("KXMVE") or bool(m.get("mve_collection_ticker"))
 
 
-def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int = 20) -> List[Dict[str, Any]]:
-    """Fetch open Kalshi markets (paginated) and normalize them."""
+def fetch_open_markets(max_pages: int = 40, page_size: int = 1000, timeout: int = 30,
+                       target: int = 1500, verbose: bool = True) -> List[Dict[str, Any]]:
+    """Fetch open Kalshi markets, skipping provisional/parlay junk.
+
+    Kalshi's market list is dominated by freshly-created provisional sports
+    parlays, so we page through (cursor) skipping those and stop once we have
+    `target` real, priced markets.
+    """
     import requests  # lazy
     headers = {"Accept": "application/json"}
     token = os.environ.get("KALSHI_API_TOKEN")
@@ -70,7 +76,8 @@ def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int =
 
     out: List[Dict[str, Any]] = []
     cursor = None
-    for _ in range(max_pages):
+    scanned = 0
+    for page in range(max_pages):
         params = {"status": "open", "limit": page_size}
         if cursor:
             params["cursor"] = cursor
@@ -80,6 +87,7 @@ def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int =
         markets = data.get("markets", []) if isinstance(data, dict) else []
         if not markets:
             break
+        scanned += len(markets)
         for m in markets:
             if _is_multivariate(m):
                 continue
@@ -87,8 +95,10 @@ def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int =
             if nm["yes_ask"] is None and nm["no_ask"] is None:
                 continue
             out.append(nm)
+        if verbose:
+            print(f"    kalshi page {page + 1}: scanned {scanned}, kept {len(out)}")
         cursor = data.get("cursor")
-        if not cursor:
+        if not cursor or len(out) >= target:
             break
     return out
 
