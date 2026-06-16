@@ -48,6 +48,7 @@ def main():
     print(f"Calibrating {len(stations)} cities over {start} .. {end} (forecast vs actual)\n")
 
     rows = []
+    skipped = []
     print(f"{'station':12s} {'city':14s} {'n':>3s} {'mean_err_F':>10s} {'MAE_F':>7s} {'bias_F':>7s} {'std_F':>7s}")
     print("-" * 64)
     for st in stations:
@@ -64,11 +65,18 @@ def main():
             continue
         city = cfg.stations[st].city
         print(f"{st:12s} {city[:14]:14s} {s['n']:>3} {s['mean_error_f']:>10} {s['mae_f']:>7} {s['station_bias_f']:>7} {str(s['error_std_f']):>7}")
-        if s["n"] >= args.min_samples:
+        # Degenerate result: forecast feed == archive (error identically 0) -> cannot
+        # calibrate this city with this method; skip so we never write std=0.
+        std_ok = s["error_std_f"] not in ("", None) and float(s["error_std_f"]) > 0.1
+        if s["n"] >= args.min_samples and std_ok:
             rows.append({"station": st, "station_bias_f": s["station_bias_f"], "error_std_f": s["error_std_f"]})
+        else:
+            skipped.append(st)
 
+    if skipped:
+        print(f"\nSkipped (no usable forecast-vs-actual signal; need the settlement loop or a coord fix): {skipped}")
     if not rows:
-        print("\nNo cities had enough samples to calibrate.")
+        print("\nNo cities could be calibrated by this method.")
         return
 
     print(f"\n{len(rows)} cities have >= {args.min_samples} samples.")
