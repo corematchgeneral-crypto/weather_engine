@@ -38,6 +38,53 @@ def _ensure_csv(path: Path, columns: list[str]):
         df.to_csv(path, index=False)
 
 
+_BUCKET_COMPARISONS = {"EQUALS", "RANGE", "ATLEAST", "ATMOST"}
+
+
+def _suppress_bucket_agreement(out: "pd.DataFrame") -> "pd.DataFrame":
+    """Drop false bucket-market edges.
+
+    On multi-bucket events (Polymarket ladders), the model's forecast error is
+    often wider than a 1-degree bucket, so it spreads probability across several
+    buckets and reports an apparent "edge" against whichever bucket the market
+    favors -- even when the model's own most-likely bucket is the SAME one the
+    market favors. That is under-confidence, not skill. When the model and the
+    market agree on the most-likely bucket, suppress all BUY signals in that
+    event (a real edge requires the forecast to point at a DIFFERENT bucket).
+    """
+    if out.empty or "comparison" not in out.columns:
+        return out
+    out = out.reset_index(drop=True)
+    group_cols = [c for c in ["market", "station", "target_date", "underlying"] if c in out.columns]
+    if not group_cols:
+        return out
+    for _, idx in out.groupby(group_cols).groups.items():
+        g = out.loc[idx]
+        comps = set(str(c).upper() for c in g["comparison"])
+        if len(g) < 2 or not comps.issubset(_BUCKET_COMPARISONS):
+            continue
+        mp = pd.to_numeric(g["model_prob_yes"], errors="coerce")
+        ya = pd.to_numeric(g["yes_ask"], errors="coerce")
+        if mp.notna().sum() == 0 or ya.notna().sum() == 0:
+            continue
+        model_fav = out.loc[mp.idxmax()]
+        market_fav = out.loc[ya.idxmax()]
+        same_bucket = (
+            model_fav.get("threshold_f") == market_fav.get("threshold_f")
+            and str(model_fav.get("threshold_high")) == str(market_fav.get("threshold_high"))
+            and str(model_fav.get("comparison")) == str(market_fav.get("comparison"))
+        )
+        if same_bucket:
+            for i in idx:
+                if out.at[i, "signal"] in ("BUY_YES", "BUY_NO"):
+                    out.at[i, "signal"] = "NO_TRADE"
+                    out.at[i, "best_side"] = None
+                    prev = out.at[i, "signal_reason"]
+                    note = "SUPPRESSED(model agrees with market favorite bucket; no directional edge)"
+                    out.at[i, "signal_reason"] = (str(prev) + "; " if prev else "") + note
+    return out
+
+
 def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fee_buffer: float = None, minimum_edge: float = None, integer_settlement_mode: bool = True, min_volume: float | None = None, data_dir: str | Path | None = None) -> pd.DataFrame:
     cfg = load_config()
     if fee_buffer is None:
@@ -46,6 +93,8 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         minimum_edge = cfg.defaults.get("minimum_edge", MIN_EDGE_DEFAULT)
     if min_volume is None:
         min_volume = cfg.defaults.get("min_market_volume", 0)
+    suppress_same_day = bool(cfg.defaults.get("suppress_same_day", True))
+    suppress_bucket_agreement = bool(cfg.defaults.get("suppress_bucket_agreement", True))
 
     market_df = load_market_csv(market_csv_path)
     # Ensure dates and timestamps
@@ -222,13 +271,15 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         # Lead time: hours from the market snapshot to the target day.
         target_d = r.get("target_date")
         hours_until_target = 24.0  # sensible ~1-day fallback
+        lead_days_val = None
         try:
             if pd.notna(timestamp) and target_d is not None:
                 snap_date = pd.to_datetime(timestamp).date()
-                lead_days = (target_d - snap_date).days
-                hours_until_target = max(0.0, float(lead_days) * 24.0)
+                lead_days_val = (target_d - snap_date).days
+                hours_until_target = max(0.0, float(lead_days_val) * 24.0)
         except Exception:
             hours_until_target = 24.0
+            lead_days_val = None
 
         # Ensemble spread (std of per-model predicted values for this underlying).
         ens_std = float(ens_std_raw) if (ens_std_raw is not None and not pd.isna(ens_std_raw)) else None
@@ -262,11 +313,17 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         best_side = None
         signal = "NO_TRADE"
         reasons = []
+        same_day = (lead_days_val is not None and lead_days_val <= 0)
         if issues:
             reasons.append("SANITY:" + ",".join(issues))
             signal = "NO_TRADE"
         elif low_liquidity:
             reasons.append(f"LOW_LIQUIDITY(volume={volume} < min={min_volume})")
+            signal = "NO_TRADE"
+        elif suppress_same_day and same_day:
+            # The day is (nearly) over; the market has intraday observations the
+            # daily forecast lacks, so any "edge" here is unreliable.
+            reasons.append("SAME_DAY(market has intraday info; forecast edge unreliable)")
             signal = "NO_TRADE"
         else:
             if yes_edge is not None and yes_edge >= minimum_edge and yes_ask is not None:
@@ -369,6 +426,10 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
     # Remove exact duplicate rows within this run by signal_id
     if not out.empty:
         out = out.drop_duplicates(subset=["signal_id"])
+
+    # Suppress false bucket-market edges (model agrees with market favorite)
+    if suppress_bucket_agreement and not out.empty:
+        out = _suppress_bucket_agreement(out)
 
     # Append non-duplicate signals to data/signals.csv
     if signals_path.exists():
