@@ -27,6 +27,13 @@ stations:
     timezone: America/Los_Angeles
     station_bias_f: 0.0
     error_std_f: 2.2
+  KATL:
+    city: Atlanta
+    lat: 33.6367
+    lon: -84.4281
+    timezone: America/New_York
+    station_bias_f: 0.0
+    error_std_f: 2.5
 
 defaults:
   fee_buffer: 0.03
