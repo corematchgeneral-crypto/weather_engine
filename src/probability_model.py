@@ -23,6 +23,15 @@ if TYPE_CHECKING:  # for type hints only; avoids importing pydantic/yaml at modu
     from src.config import Config
 
 
+def _norm_cdf(z: float) -> float:
+    """Standard normal CDF using only the standard library (no scipy needed).
+
+    Phi(z) = 0.5 * (1 + erf(z / sqrt(2))). Matches scipy.stats.norm.cdf to
+    floating-point precision.
+    """
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
 # ---------------------------------------------------------------------------
 # Effective-sigma model (the core of v2)
 # ---------------------------------------------------------------------------
@@ -188,8 +197,7 @@ def model_probability_above(
         sigma = sigma_info["sigma"]
 
     z = (effective_threshold - mu) / sigma
-    from scipy.stats import norm  # local import: keeps pure sigma logic importable without scipy
-    prob_yes = float(1.0 - norm.cdf(z))
+    prob_yes = float(1.0 - _norm_cdf(z))
     prob_no = float(1.0 - prob_yes)
 
     return {

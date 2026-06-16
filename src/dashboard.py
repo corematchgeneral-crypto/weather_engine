@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from src.weather_data import fetch_forecasts_for_stations
 from src.signals import generate_signals
 from src.config import load_config
-from src.probability_model import effective_sigma
+from src.probability_model import effective_sigma, _norm_cdf
 from src.historical_evaluation import evaluate_signals
 from src.forecast_accuracy import compute_forecast_accuracy, compute_winrate_timeseries
 
@@ -102,7 +102,6 @@ with tab_signals:
                 ens_std = float(fr["predicted_high_f"].std(ddof=1)) if len(fr) >= 2 else None
 
         if ph is not None:
-            from scipy.stats import norm
             station_cfg = cfg.stations[station]
             mu = ph + station_cfg.station_bias_f
             lead_days = max(0, (target_date - date.today()).days)
@@ -112,14 +111,14 @@ with tab_signals:
             sigma = sig_info["sigma"]
             eff_thr = thresh + 0.5 if integer_settlement_mode else thresh
             xs = np.arange(mu - 12, mu + 12, 0.5)
-            probs = 1 - norm.cdf((eff_thr - xs) / sigma)
+            probs = np.array([1.0 - _norm_cdf((eff_thr - x) / sigma) for x in xs])
             chart_df = pd.DataFrame({"temp": xs, "prob_yes": probs}).set_index("temp")
             st.line_chart(chart_df)
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Predicted high (mean)", f"{ph:.1f} F")
             c2.metric("Ensemble spread", f"{ens_std:.2f} F" if ens_std is not None else "n/a")
             c3.metric(f"Effective sigma (lead {lead_days}d)", f"{sigma:.2f} F")
-            c4.metric("P(YES) at threshold", f"{(1 - norm.cdf((eff_thr - mu) / sigma)):.1%}")
+            c4.metric("P(YES) at threshold", f"{(1.0 - _norm_cdf((eff_thr - mu) / sigma)):.1%}")
         else:
             st.info("No forecast found for this row. Fetch forecasts covering the target date.")
 

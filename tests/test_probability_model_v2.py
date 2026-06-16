@@ -45,7 +45,7 @@ def test_sigma_floor_applied():
 
 
 # ---------------------------------------------------------------------------
-# Full model behavior (needs scipy + config)
+# Full model behavior (needs config + numpy; no scipy required)
 # ---------------------------------------------------------------------------
 
 def test_v2_longer_lead_pulls_probability_toward_half():
