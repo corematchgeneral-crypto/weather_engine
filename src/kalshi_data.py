@@ -18,21 +18,22 @@ import os
 KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
 
-def _cents_to_dollars(v) -> Optional[float]:
+def _to_dollars(v) -> Optional[float]:
+    """Kalshi v2 prices already come as dollar strings (e.g. '0.4700')."""
     try:
-        if v is None:
+        if v is None or v == "":
             return None
-        return round(float(v) / 100.0, 4)
+        return round(float(v), 4)
     except Exception:
         return None
 
 
 def normalize_kalshi_market(m: Dict[str, Any]) -> Dict[str, Any]:
     ticker = m.get("ticker", "")
-    # Build a human-readable title from the market's question + the yes side label.
-    title = m.get("title") or ""
-    sub = m.get("yes_sub_title") or m.get("subtitle") or ""
-    if sub and sub.lower() not in title.lower():
+    title = (m.get("title") or "").strip()
+    sub = (m.get("yes_sub_title") or "").strip()
+    # Append the strike sub-title only if it's a real strike (not a parlay leg list)
+    if sub and "," not in sub and sub.lower() not in title.lower():
         title = f"{title} {sub}".strip()
     if not title:
         title = ticker
@@ -41,14 +42,22 @@ def normalize_kalshi_market(m: Dict[str, Any]) -> Dict[str, Any]:
         "id": ticker,
         "title": title,
         "url": f"https://kalshi.com/markets/{ticker}" if ticker else None,
-        "yes_ask": _cents_to_dollars(m.get("yes_ask")),
-        "no_ask": _cents_to_dollars(m.get("no_ask")),
-        "yes_bid": _cents_to_dollars(m.get("yes_bid")),
-        "no_bid": _cents_to_dollars(m.get("no_bid")),
-        "volume": m.get("volume"),
+        "yes_ask": _to_dollars(m.get("yes_ask_dollars")),
+        "no_ask": _to_dollars(m.get("no_ask_dollars")),
+        "yes_bid": _to_dollars(m.get("yes_bid_dollars")),
+        "no_bid": _to_dollars(m.get("no_bid_dollars")),
+        "volume": m.get("volume_fp"),
         "end_date": m.get("close_time"),
-        "category": m.get("category") or m.get("event_ticker"),
+        "category": m.get("event_ticker"),
     }
+
+
+def _is_multivariate(m: Dict[str, Any]) -> bool:
+    """Skip multivariate / parlay markets (their sub-titles are leg lists, not questions)."""
+    if m.get("mve_selected_legs"):
+        return True
+    et = str(m.get("event_ticker") or "")
+    return et.startswith("KXMVE") or bool(m.get("mve_collection_ticker"))
 
 
 def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int = 20) -> List[Dict[str, Any]]:
@@ -71,7 +80,13 @@ def fetch_open_markets(max_pages: int = 20, page_size: int = 200, timeout: int =
         markets = data.get("markets", []) if isinstance(data, dict) else []
         if not markets:
             break
-        out.extend(normalize_kalshi_market(m) for m in markets)
+        for m in markets:
+            if _is_multivariate(m):
+                continue
+            nm = normalize_kalshi_market(m)
+            if nm["yes_ask"] is None and nm["no_ask"] is None:
+                continue
+            out.append(nm)
         cursor = data.get("cursor")
         if not cursor:
             break

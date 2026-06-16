@@ -216,15 +216,30 @@ def normalize_pm_market(m: Dict[str, Any]) -> Dict[str, Any]:
 def fetch_active_markets(max_pages: int = 40, page_size: int = 100, timeout: int = 20) -> List[Dict[str, Any]]:
     """Fetch active, open Polymarket markets (paginated) normalized to common schema.
 
-    Gamma caps the page size near 100, so we paginate by offset and stop when a
-    page comes back empty.
+    Ordered by 24h volume (most active first) so liquid markets -- the ones most
+    likely to also exist on Kalshi -- come first. Falls back to default order if
+    the API rejects the order params.
     """
     import requests  # lazy
     out: List[Dict[str, Any]] = []
+    use_order = True
     for page in range(max_pages):
         params = {"active": "true", "closed": "false", "limit": page_size, "offset": page * page_size}
-        r = requests.get(POLY_MARKETS_URL, params=params, timeout=timeout)
-        r.raise_for_status()
+        if use_order:
+            params["order"] = "volume24hr"
+            params["ascending"] = "false"
+        try:
+            r = requests.get(POLY_MARKETS_URL, params=params, timeout=timeout)
+            r.raise_for_status()
+        except Exception:
+            if use_order:  # retry this page without ordering, then keep going unordered
+                use_order = False
+                params.pop("order", None)
+                params.pop("ascending", None)
+                r = requests.get(POLY_MARKETS_URL, params=params, timeout=timeout)
+                r.raise_for_status()
+            else:
+                raise
         data = r.json()
         markets = data if isinstance(data, list) else data.get("markets", data.get("data", []))
         if not markets:
