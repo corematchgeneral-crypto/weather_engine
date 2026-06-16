@@ -61,11 +61,13 @@ def rank_and_print(market_csv, top=20, min_edge=None):
         ranked = ranked[ranked["best_edge"] >= min_edge]
 
     print()
-    header = f"{'city':12s} {'bucket':14s} {'cmp':8s} {'fcst_F':>7s} {'P(yes)':>7s} {'yes':>5s} {'no':>5s} {'signal':9s} {'edge':>7s} conf"
+    header = f"{'city':12s} {'date':5s} {'bucket':14s} {'cmp':8s} {'fcst_F':>7s} {'P(yes)':>7s} {'yes':>5s} {'no':>5s} {'signal':9s} {'edge':>7s} conf"
     print(header)
     print("-" * len(header))
     for _, r in ranked.head(top).iterrows():
+        td = str(r.get("target_date"))[5:] if r.get("target_date") is not None else ""
         print(f"{str(r.get('city'))[:12]:12s} "
+              f"{td:5s} "
               f"{str(r.get('notes'))[:14]:14s} "
               f"{str(r.get('comparison'))[:8]:8s} "
               f"{_fmt(r.get('predicted_value_f'),'{:.1f}'):>7s} "

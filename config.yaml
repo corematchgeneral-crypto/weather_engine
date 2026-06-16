@@ -56,6 +56,19 @@ stations:
   MIAMI:       {city: Miami,         lat: 25.7617,  lon: -80.1918, timezone: America/New_York,  station_bias_f: 0.0, error_std_f: 2.5}
   LUCKNOW:     {city: Lucknow,       lat: 26.8467,  lon: 80.9462,  timezone: Asia/Kolkata,      station_bias_f: 0.0, error_std_f: 2.5}
   TELAVIV:     {city: Tel Aviv,      lat: 32.0853,  lon: 34.7818,  timezone: Asia/Jerusalem,    station_bias_f: 0.0, error_std_f: 2.5}
+  AMSTERDAM:   {city: Amsterdam,     lat: 52.3676,  lon: 4.9041,   timezone: Europe/Amsterdam,  station_bias_f: 0.0, error_std_f: 2.5}
+  MADRID:      {city: Madrid,        lat: 40.4168,  lon: -3.7038,  timezone: Europe/Madrid,     station_bias_f: 0.0, error_std_f: 2.5}
+  SEATTLE:     {city: Seattle,       lat: 47.6062,  lon: -122.3321,timezone: America/Los_Angeles,station_bias_f: 0.0, error_std_f: 2.5}
+  ANKARA:      {city: Ankara,        lat: 39.9334,  lon: 32.8597,  timezone: Europe/Istanbul,   station_bias_f: 0.0, error_std_f: 2.5}
+  MOSCOW:      {city: Moscow,        lat: 55.7558,  lon: 37.6173,  timezone: Europe/Moscow,     station_bias_f: 0.0, error_std_f: 2.5}
+  WARSAW:      {city: Warsaw,        lat: 52.2297,  lon: 21.0122,  timezone: Europe/Warsaw,     station_bias_f: 0.0, error_std_f: 2.5}
+  TORONTO:     {city: Toronto,       lat: 43.6532,  lon: -79.3832, timezone: America/Toronto,   station_bias_f: 0.0, error_std_f: 2.5}
+  HOUSTON:     {city: Houston,       lat: 29.7604,  lon: -95.3698, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
+  AUSTIN:      {city: Austin,        lat: 30.2672,  lon: -97.7431, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
+  DALLAS:      {city: Dallas,        lat: 32.7767,  lon: -96.7970, timezone: America/Chicago,   station_bias_f: 0.0, error_std_f: 2.5}
+  SAOPAULO:    {city: Sao Paulo,     lat: -23.5505, lon: -46.6333, timezone: America/Sao_Paulo, station_bias_f: 0.0, error_std_f: 2.5}
+  BUENOSAIRES: {city: Buenos Aires,  lat: -34.6037, lon: -58.3816, timezone: America/Argentina/Buenos_Aires, station_bias_f: 0.0, error_std_f: 2.5}
+  DENVER:      {city: Denver,        lat: 39.7392,  lon: -104.9903,timezone: America/Denver,    station_bias_f: 0.0, error_std_f: 2.5}
 
 defaults:
   fee_buffer: 0.03

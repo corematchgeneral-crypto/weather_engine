@@ -44,3 +44,16 @@ def test_event_to_rows():
     assert rows[0]["comparison"] == "EQUALS" and rows[0]["yes_ask"] == 0.93 and rows[0]["unit"] == "C"
     assert rows[0]["station"] == "PARIS" and rows[0]["city"] == "Paris"
     assert rows[1]["comparison"] == "ATMOST"
+
+
+
+def test_build_event_slug():
+    from datetime import date
+    from src.polymarket_data import build_event_slug, CITY_SLUGS
+    assert build_event_slug("highest", "paris", date(2026, 6, 16)) == \
+        "highest-temperature-in-paris-on-june-16-2026"
+    assert build_event_slug("lowest", "hong-kong", date(2026, 6, 17)) == \
+        "lowest-temperature-in-hong-kong-on-june-17-2026"
+    # every scanner city maps to a station key
+    assert all(isinstance(v, str) and v for v in CITY_SLUGS.values())
+    assert len(CITY_SLUGS) >= 30

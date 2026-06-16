@@ -152,3 +152,39 @@ def event_to_rows(event: Dict[str, Any], station: Optional[str] = None) -> List[
 def city_to_station_map(cfg) -> Dict[str, str]:
     """Build {city_name_lower: station_key} from config so we can match by city."""
     return {sc.city.strip().lower(): key for key, sc in cfg.stations.items()}
+
+
+# Polymarket city slug -> our config station key. Used by the multi-city scanner
+# to build event slugs deterministically and resolve the forecast station.
+CITY_SLUGS: Dict[str, str] = {
+    "paris": "PARIS", "london": "LONDON", "munich": "MUNICH", "amsterdam": "AMSTERDAM",
+    "madrid": "MADRID", "seattle": "SEATTLE", "ankara": "ANKARA", "moscow": "MOSCOW",
+    "milan": "MILAN", "nyc": "KLGA", "jeddah": "JEDDAH", "atlanta": "KATL",
+    "warsaw": "WARSAW", "los-angeles": "KLAX", "toronto": "TORONTO",
+    "san-francisco": "KSFO", "miami": "MIAMI", "houston": "HOUSTON",
+    "shanghai": "SHANGHAI", "austin": "AUSTIN", "dallas": "DALLAS",
+    "sao-paulo": "SAOPAULO", "buenos-aires": "BUENOSAIRES", "chicago": "KMDW",
+    "denver": "DENVER", "seoul": "SEOUL", "hong-kong": "HONGKONG", "taipei": "TAIPEI",
+    "chongqing": "CHONGQING", "kuala-lumpur": "KUALALUMPUR", "helsinki": "HELSINKI",
+    "beijing": "BEIJING", "shenzhen": "SHENZHEN", "chengdu": "CHENGDU",
+    "wellington": "WELLINGTON", "tokyo": "TOKYO", "lucknow": "LUCKNOW", "tel-aviv": "TELAVIV",
+}
+
+_MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july",
+                "august", "september", "october", "november", "december"]
+
+
+def build_event_slug(kind: str, city_slug: str, d) -> str:
+    """Construct a Polymarket event slug, e.g.
+    highest-temperature-in-paris-on-june-16-2026
+    """
+    month = _MONTH_NAMES[d.month - 1]
+    return f"{kind}-temperature-in-{city_slug}-on-{month}-{d.day}-{d.year}"
+
+
+def fetch_event_safe(slug: str, timeout: int = 20) -> Optional[Dict[str, Any]]:
+    """Fetch an event by slug, returning None instead of raising (for scanning)."""
+    try:
+        return fetch_event(slug, timeout=timeout)
+    except Exception:
+        return None
