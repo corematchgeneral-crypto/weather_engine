@@ -32,6 +32,66 @@ def _norm_cdf(z: float) -> float:
     return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
 
 
+_NEG_INF = float("-inf")
+_POS_INF = float("inf")
+
+
+def _to_f(value: float, unit: str) -> float:
+    """Convert a temperature value to deg F (unit 'C' or 'F')."""
+    return value * 9.0 / 5.0 + 32.0 if str(unit).upper() == "C" else float(value)
+
+
+def contract_bounds_f(
+    comparison: str,
+    threshold: float,
+    threshold_high: Optional[float] = None,
+    unit: str = "F",
+    integer_settlement_mode: bool = True,
+) -> tuple:
+    """Return ``(a_f, b_f)``: the contract resolves YES iff ``a_f <= value_F < b_f``.
+
+    Supports every ForecastEx / Polymarket temperature shape:
+
+    - ``ABOVE`` ("exceed N"):      value > N
+    - ``BELOW`` ("be below N"):    value < N
+    - ``ATLEAST`` ("N or higher"): rounds to >= N
+    - ``ATMOST`` ("N or below"):   rounds to <= N
+    - ``EQUALS`` ("= N"):          rounds to N (a 1-degree bucket)
+    - ``RANGE`` ("Lo-Hi"):         rounds into [Lo, Hi]
+
+    ``threshold``/``threshold_high`` are in ``unit`` (``"C"`` or ``"F"``). Whole-
+    degree rounding boundaries (+/-0.5) are applied in the native unit and then
+    converted to deg F (the model works in F). For ABOVE/BELOW the +/-0.5 shift is
+    applied only when ``integer_settlement_mode`` is True; bucket comparisons
+    (ATLEAST/ATMOST/EQUALS/RANGE) always round to whole degrees.
+    """
+    comp = (comparison or "ABOVE").upper()
+    half = 0.5 if integer_settlement_mode else 0.0
+    if comp == "ABOVE":
+        lo, hi = threshold + half, None
+    elif comp == "BELOW":
+        lo, hi = None, threshold - half
+    elif comp == "ATLEAST":
+        lo, hi = threshold - 0.5, None
+    elif comp == "ATMOST":
+        lo, hi = None, threshold + 0.5
+    elif comp == "EQUALS":
+        lo, hi = threshold - 0.5, threshold + 0.5
+    elif comp == "RANGE":
+        if threshold_high is None:
+            raise ValueError("RANGE comparison requires threshold_high")
+        lo = min(threshold, threshold_high) - 0.5
+        hi = max(threshold, threshold_high) + 0.5
+    else:
+        raise ValueError(f"unknown comparison {comparison!r}")
+    a_f = _to_f(lo, unit) if lo is not None else _NEG_INF
+    b_f = _to_f(hi, unit) if hi is not None else _POS_INF
+    return a_f, b_f
+
+
+VALID_COMPARISONS = ("ABOVE", "BELOW", "ATLEAST", "ATMOST", "EQUALS", "RANGE")
+
+
 # ---------------------------------------------------------------------------
 # Effective-sigma model (the core of v2)
 # ---------------------------------------------------------------------------
@@ -132,28 +192,34 @@ def model_probability_above(
     ensemble_std_f: Optional[float] = None,
     method: str = "normal_error_v2",
     direction: str = "ABOVE",
+    comparison: Optional[str] = None,
+    unit: str = "F",
+    threshold_high_f: Optional[float] = None,
     cfg: Optional["Config"] = None,
 ) -> dict:
     """Probability that the contract resolves YES.
 
-    Models the settled value (high/low/avg, supplied via ``predicted_high_f``)
-    as Normal(mu, sigma) and integrates the relevant tail.
+    Models the settled value (high/low/avg, supplied via ``predicted_high_f``,
+    in deg F) as Normal(mu, sigma) and integrates the probability mass inside the
+    contract's outcome band.
 
     Parameters
     ----------
     predicted_high_f:
         Point forecast of the contract's underlying value (ensemble mean), deg F.
-        Named ``predicted_high_f`` for backward compatibility; for LOW/AVG
-        contracts pass the predicted low / average instead.
     threshold_f:
-        Contract threshold (whole degrees on ForecastEx).
-    direction:
-        ``"ABOVE"`` for "exceed X" contracts (YES if value > X), or ``"BELOW"``
-        for "be below X" contracts (YES if value < X).
+        Contract threshold, expressed in ``unit`` (despite the ``_f`` suffix kept
+        for backward compatibility).
+    comparison:
+        One of ABOVE/BELOW/ATLEAST/ATMOST/EQUALS/RANGE. If omitted, falls back to
+        ``direction`` (ABOVE/BELOW) for backward compatibility.
+    unit:
+        ``"F"`` (default) or ``"C"`` -- the unit of ``threshold_f`` /
+        ``threshold_high_f``. The forecast and sigma are always in deg F.
+    threshold_high_f:
+        Upper bound for RANGE contracts (in ``unit``).
     integer_settlement_mode:
-        ForecastEx settles on the whole-degree Weather Underground value.
-        "Exceed 72" wins only at 73+, so we shift the threshold by +0.5 (ABOVE)
-        or -0.5 (BELOW) to model that rounding boundary.
+        Apply whole-degree rounding boundaries (+/-0.5).
     hours_until_target_day:
         Hours from the snapshot to the target day. v2 scales uncertainty with it.
     ensemble_std_f:
@@ -170,22 +236,13 @@ def model_probability_above(
     if not station_cfg:
         raise KeyError(f"Station config not found: {station}")
 
-    direction = (direction or "ABOVE").upper()
-    if direction not in ("ABOVE", "BELOW"):
-        raise ValueError(f"direction must be ABOVE or BELOW, got {direction!r}")
+    comparison = (comparison or direction or "ABOVE").upper()
+    if comparison not in VALID_COMPARISONS:
+        raise ValueError(f"comparison must be one of {VALID_COMPARISONS}, got {comparison!r}")
 
     bias = station_cfg.station_bias_f
     base_std = station_cfg.error_std_f
-
     mu = predicted_high_f + bias
-
-    if integer_settlement_mode:
-        # Whole-degree settlement boundary. "Exceed 72" needs >=73 (true>72.5);
-        # "below 72" needs <=71 (true<71.5).
-        boundary = 0.5 if direction == "ABOVE" else -0.5
-        effective_threshold = threshold_f + boundary
-    else:
-        effective_threshold = threshold_f
 
     if method == "normal_error_v1":
         sigma = base_std
@@ -207,20 +264,34 @@ def model_probability_above(
         )
         sigma = sigma_info["sigma"]
 
-    z = (effective_threshold - mu) / sigma
-    cdf = _norm_cdf(z)  # P(value <= effective_threshold)
-    if direction == "ABOVE":
-        prob_yes = float(1.0 - cdf)   # P(value > threshold)
-    else:
-        prob_yes = float(cdf)         # P(value < threshold)
+    a_f, b_f = contract_bounds_f(
+        comparison, threshold_f, threshold_high=threshold_high_f, unit=unit,
+        integer_settlement_mode=integer_settlement_mode,
+    )
+    # P(a_f <= value < b_f) = Phi((b_f - mu)/sigma) - Phi((a_f - mu)/sigma)
+    cdf_hi = 1.0 if b_f == _POS_INF else _norm_cdf((b_f - mu) / sigma)
+    cdf_lo = 0.0 if a_f == _NEG_INF else _norm_cdf((a_f - mu) / sigma)
+    prob_yes = float(max(0.0, min(1.0, cdf_hi - cdf_lo)))
     prob_no = float(1.0 - prob_yes)
+
+    # The single "effective threshold" only makes sense for one-sided contracts.
+    if comparison in ("ABOVE", "ATLEAST"):
+        effective_threshold = a_f
+    elif comparison in ("BELOW", "ATMOST"):
+        effective_threshold = b_f
+    else:
+        effective_threshold = None
 
     return {
         "model_prob_yes": prob_yes,
         "model_prob_no": prob_no,
         "predicted_high_f": float(predicted_high_f),
-        "direction": direction,
-        "effective_threshold_f": float(effective_threshold),
+        "comparison": comparison,
+        "direction": comparison,  # kept for backward compatibility
+        "unit": str(unit).upper(),
+        "band_lo_f": None if a_f == _NEG_INF else float(a_f),
+        "band_hi_f": None if b_f == _POS_INF else float(b_f),
+        "effective_threshold_f": float(effective_threshold) if effective_threshold is not None else None,
         "error_std_f": float(sigma),
         "base_error_std_f": float(base_std),
         "station_bias_f": float(bias),

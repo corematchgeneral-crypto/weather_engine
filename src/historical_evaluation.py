@@ -51,6 +51,16 @@ def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlement
         merged["direction"] = "ABOVE"
     else:
         merged["direction"] = merged["direction"].fillna("ABOVE")
+    if "comparison" not in merged.columns:
+        merged["comparison"] = merged["direction"]
+    else:
+        merged["comparison"] = merged["comparison"].fillna(merged["direction"])
+    if "unit" not in merged.columns:
+        merged["unit"] = "F"
+    else:
+        merged["unit"] = merged["unit"].fillna("F")
+    if "threshold_high" not in merged.columns:
+        merged["threshold_high"] = np.nan
     if "underlying" not in merged.columns:
         merged["underlying"] = "HIGH"
     else:
@@ -61,12 +71,13 @@ def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlement
         merged["final_low_f"] = np.nan
 
     # Coerce numeric-like columns before computing outcomes
-    num_cols = ["model_prob_yes", "model_prob_no", "yes_ask", "no_ask", "threshold_f", "final_high_f", "final_low_f"]
+    num_cols = ["model_prob_yes", "model_prob_no", "yes_ask", "no_ask", "threshold_f", "threshold_high", "final_high_f", "final_low_f"]
     for c in num_cols:
         if c in merged.columns:
             merged[c] = pd.to_numeric(merged[c], errors="coerce")
 
-    # Observed settled value depends on the contract's underlying (HIGH/LOW/AVG)
+    # Observed settled value depends on the contract's underlying (HIGH/LOW/AVG).
+    # Stored final values are in deg F (the unit-conversion lives in the bounds).
     def _observed_value(r):
         u = str(r.get("underlying", "HIGH")).upper()
         hi, lo = r.get("final_high_f"), r.get("final_low_f")
@@ -82,14 +93,23 @@ def evaluate_signals(signals_path: Path, market_snapshots_path: Path, settlement
     if merged.empty:
         return {"error": "No settled signals to evaluate"}
 
-    # Binary YES outcome respects direction: ABOVE => value>threshold, BELOW => value<threshold
+    # YES outcome via the same bounds the model used: YES iff a_f <= observed_F < b_f
+    from src.probability_model import contract_bounds_f
+
     def _outcome(r):
         obs, thr = r.get("observed_value_f"), r.get("threshold_f")
         if pd.isna(obs) or pd.isna(thr):
             return np.nan
-        if str(r.get("direction", "ABOVE")).upper() == "BELOW":
-            return 1 if float(obs) < float(thr) else 0
-        return 1 if float(obs) > float(thr) else 0
+        thr_hi = r.get("threshold_high")
+        thr_hi = float(thr_hi) if pd.notna(thr_hi) else None
+        try:
+            a_f, b_f = contract_bounds_f(
+                str(r.get("comparison", "ABOVE")).upper(), float(thr), thr_hi,
+                str(r.get("unit", "F")).upper(), True,
+            )
+        except Exception:
+            return np.nan
+        return 1 if (a_f <= float(obs) < b_f) else 0
 
     merged["actual_yes_outcome"] = merged.apply(_outcome, axis=1)
 

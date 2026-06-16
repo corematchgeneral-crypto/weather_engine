@@ -190,13 +190,18 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         issues = validation.get("issues", [])
         warnings = validation.get("warnings", [])
 
-        # Contract semantics: underlying (HIGH/LOW/AVG) and direction (ABOVE/BELOW)
+        # Contract semantics: underlying (HIGH/LOW/AVG), comparison, unit, range
         underlying = str(r.get("underlying")).upper() if ("underlying" in r.index and pd.notna(r.get("underlying"))) else "HIGH"
         direction = str(r.get("direction")).upper() if ("direction" in r.index and pd.notna(r.get("direction"))) else "ABOVE"
+        comparison = str(r.get("comparison")).upper() if ("comparison" in r.index and pd.notna(r.get("comparison"))) else direction
+        unit = str(r.get("unit")).upper() if ("unit" in r.index and pd.notna(r.get("unit"))) else "F"
+        threshold_high = r.get("threshold_high") if ("threshold_high" in r.index and pd.notna(r.get("threshold_high"))) else None
         if underlying not in ("HIGH", "LOW", "AVG"):
             underlying = "HIGH"
-        if direction not in ("ABOVE", "BELOW"):
-            direction = "ABOVE"
+        if comparison not in ("ABOVE", "BELOW", "ATLEAST", "ATMOST", "EQUALS", "RANGE"):
+            comparison = "ABOVE"
+        if unit not in ("C", "F"):
+            unit = "F"
 
         # Select the predicted value + ensemble spread for the contract's underlying.
         pred_high = r.get("predicted_high_f")
@@ -239,7 +244,9 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
                 station,
                 integer_settlement_mode=integer_settlement_mode,
                 ensemble_std_f=ens_std,
-                direction=direction,
+                comparison=comparison,
+                unit=unit,
+                threshold_high_f=(float(threshold_high) if threshold_high is not None else None),
                 cfg=cfg,
             )
         model_prob_yes = model["model_prob_yes"] if model else None
@@ -318,6 +325,9 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
             "station": station,
             "target_date": r.get("target_date"),
             "threshold_f": r.get("threshold_f"),
+            "threshold_high": threshold_high,
+            "unit": unit,
+            "comparison": comparison,
             "underlying": underlying,
             "direction": direction,
             "yes_ask": yes_ask,

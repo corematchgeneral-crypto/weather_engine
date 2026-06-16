@@ -101,3 +101,60 @@ def test_below_integer_boundary():
 def test_invalid_direction_raises():
     with pytest.raises(ValueError):
         model_probability_above(74.0, 74.0, 24, "KMDW", direction="SIDEWAYS")
+
+
+# ---------------------------------------------------------------------------
+# Bucket / range / unit contracts (Polymarket-style)
+# ---------------------------------------------------------------------------
+from src.probability_model import contract_bounds_f
+
+
+def test_contract_bounds_all_types():
+    assert contract_bounds_f("ABOVE", 74, None, "F", True) == (74.5, float("inf"))
+    assert contract_bounds_f("BELOW", 74, None, "F", True) == (float("-inf"), 73.5)
+    assert contract_bounds_f("ATLEAST", 34, None, "F", True) == (33.5, float("inf"))
+    assert contract_bounds_f("ATMOST", 25, None, "F", True) == (float("-inf"), 25.5)
+    assert contract_bounds_f("EQUALS", 28, None, "F", True) == (27.5, 28.5)
+    assert contract_bounds_f("RANGE", 92, 93, "F", True) == (91.5, 93.5)
+
+
+def test_celsius_bounds_convert_to_f():
+    a, b = contract_bounds_f("EQUALS", 28, None, "C", True)
+    assert a == pytest.approx(27.5 * 9 / 5 + 32, abs=1e-9)
+    assert b == pytest.approx(28.5 * 9 / 5 + 32, abs=1e-9)
+
+
+def test_equals_bucket_peaks_at_center():
+    # Forecast at the bucket center yields higher prob than off-center.
+    center = model_probability_above(81.5, 28, 24, "SEOUL", comparison="EQUALS", unit="C")  # 28C ~= 82.4F
+    off = model_probability_above(70.0, 28, 24, "SEOUL", comparison="EQUALS", unit="C")
+    assert center["model_prob_yes"] > off["model_prob_yes"]
+    assert 0.0 < center["model_prob_yes"] < 1.0
+
+
+def test_buckets_sum_to_one_over_full_range():
+    # Adjacent 1C EQUALS buckets should partition probability (~sum to 1).
+    total = sum(
+        model_probability_above(82.0, k, 24, "SEOUL", comparison="EQUALS", unit="C")["model_prob_yes"]
+        for k in range(15, 45)
+    )
+    assert total == pytest.approx(1.0, abs=1e-3)
+
+
+def test_atleast_and_atmost_directions():
+    hot = model_probability_above(95.0, 40, 24, "JEDDAH", comparison="ATLEAST", unit="C")  # ~104F vs 40C
+    assert hot["model_prob_yes"] > 0.5
+    cool_atmost = model_probability_above(60.0, 24, 24, "CHENGDU", comparison="ATMOST", unit="C")  # 60F well below 24C(75F)
+    assert cool_atmost["model_prob_yes"] > 0.5
+
+
+def test_range_contract():
+    # Forecast ~92.5F, RANGE 92-93F should be the most likely vs neighbors.
+    mid = model_probability_above(92.5, 92, 24, "MIAMI", comparison="RANGE", unit="F", threshold_high_f=93)
+    low = model_probability_above(92.5, 90, 24, "MIAMI", comparison="RANGE", unit="F", threshold_high_f=91)
+    assert mid["model_prob_yes"] > low["model_prob_yes"]
+
+
+def test_invalid_comparison_raises():
+    with pytest.raises(ValueError):
+        model_probability_above(74.0, 74.0, 24, "KMDW", comparison="NEARLY")
