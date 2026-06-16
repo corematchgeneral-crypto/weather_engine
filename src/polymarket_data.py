@@ -188,3 +188,47 @@ def fetch_event_safe(slug: str, timeout: int = 20) -> Optional[Dict[str, Any]]:
         return fetch_event(slug, timeout=timeout)
     except Exception:
         return None
+
+
+POLY_MARKETS_URL = "https://gamma-api.polymarket.com/markets"
+
+
+def normalize_pm_market(m: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a Gamma market into the common cross-venue schema (prices are mids)."""
+    prices = _market_prices(m)
+    slug = m.get("slug") or ""
+    title = m.get("question") or m.get("groupItemTitle") or ""
+    return {
+        "venue": "polymarket",
+        "id": m.get("id") or slug,
+        "title": title,
+        "url": f"https://polymarket.com/event/{slug}" if slug else None,
+        "yes_ask": prices.get("yes"),
+        "no_ask": prices.get("no"),
+        "yes_bid": None,
+        "no_bid": None,
+        "volume": m.get("volumeNum") or m.get("volume"),
+        "end_date": m.get("endDate"),
+        "category": m.get("category"),
+    }
+
+
+def fetch_active_markets(max_pages: int = 20, page_size: int = 200, timeout: int = 20) -> List[Dict[str, Any]]:
+    """Fetch active, open Polymarket markets (paginated) normalized to common schema."""
+    import requests  # lazy
+    out: List[Dict[str, Any]] = []
+    for page in range(max_pages):
+        params = {"active": "true", "closed": "false", "limit": page_size, "offset": page * page_size}
+        r = requests.get(POLY_MARKETS_URL, params=params, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+        markets = data if isinstance(data, list) else data.get("markets", data.get("data", []))
+        if not markets:
+            break
+        for m in markets:
+            nm = normalize_pm_market(m)
+            if nm["yes_ask"] is not None or nm["no_ask"] is not None:
+                out.append(nm)
+        if len(markets) < page_size:
+            break
+    return out
