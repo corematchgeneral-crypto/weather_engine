@@ -213,8 +213,12 @@ def normalize_pm_market(m: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def fetch_active_markets(max_pages: int = 20, page_size: int = 200, timeout: int = 20) -> List[Dict[str, Any]]:
-    """Fetch active, open Polymarket markets (paginated) normalized to common schema."""
+def fetch_active_markets(max_pages: int = 40, page_size: int = 100, timeout: int = 20) -> List[Dict[str, Any]]:
+    """Fetch active, open Polymarket markets (paginated) normalized to common schema.
+
+    Gamma caps the page size near 100, so we paginate by offset and stop when a
+    page comes back empty.
+    """
     import requests  # lazy
     out: List[Dict[str, Any]] = []
     for page in range(max_pages):
@@ -229,6 +233,4 @@ def fetch_active_markets(max_pages: int = 20, page_size: int = 200, timeout: int
             nm = normalize_pm_market(m)
             if nm["yes_ask"] is not None or nm["no_ask"] is not None:
                 out.append(nm)
-        if len(markets) < page_size:
-            break
     return out

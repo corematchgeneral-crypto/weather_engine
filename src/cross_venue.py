@@ -64,11 +64,26 @@ def find_matches(
     """Greedy best-match markets across two venues by title similarity.
 
     Returns list of (market_a, market_b, similarity), each market used at most once,
-    sorted by similarity descending.
+    sorted by similarity descending. Uses an inverted token index so only pairs
+    sharing a meaningful token are compared (fast for thousands x thousands).
     """
+    from collections import defaultdict
+
+    index = defaultdict(list)
+    for j, mb in enumerate(markets_b):
+        for tok in normalize_tokens(mb.get("title", "")):
+            index[tok].append(j)
+
     scored = []
     for ma in markets_a:
-        for mb in markets_b:
+        ta = normalize_tokens(ma.get("title", ""))
+        if not ta:
+            continue
+        cand = set()
+        for tok in ta:
+            cand.update(index.get(tok, ()))
+        for j in cand:
+            mb = markets_b[j]
             sim = title_similarity(ma.get("title", ""), mb.get("title", ""))
             if sim >= min_similarity:
                 scored.append((sim, ma, mb))

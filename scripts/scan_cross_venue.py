@@ -30,7 +30,7 @@ def _fmt(x, p="{:.3f}"):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--min-similarity", type=float, default=0.6, help="title match threshold (0-1)")
+    parser.add_argument("--min-similarity", type=float, default=0.5, help="title match threshold (0-1)")
     parser.add_argument("--min-gap", type=float, default=0.04, help="min cross-venue YES price gap to show")
     parser.add_argument("--min-arb", type=float, default=None, help="if set, only show pairs with arb_profit >= this")
     parser.add_argument("--fee", type=float, default=0.0, help="per-leg fee assumption (dollars)")
@@ -60,6 +60,7 @@ def main():
 
     print(f"Matching (similarity >= {args.min_similarity}) ...")
     results = scan_pairs(pm, kl, min_similarity=args.min_similarity, fee=args.fee)
+    print(f"  Matched pairs: {len(results)}")
 
     # Filter to interesting rows
     shown = []
@@ -72,7 +73,14 @@ def main():
         elif (arb is not None and arb > 0) or gap >= args.min_gap:
             shown.append(r)
 
-    print(f"\n{len(shown)} candidate(s) (of {len(results)} matched pairs):\n")
+    # If nothing clears the bar, still show the best matches so you can sanity-check
+    diagnostic = False
+    if not shown and results:
+        diagnostic = True
+        shown = sorted(results, key=lambda r: r.get("similarity", 0), reverse=True)[: args.top]
+
+    label = "best matches (no arb/gap candidate cleared the bar; for inspection)" if diagnostic else "candidate(s)"
+    print(f"\n{len(shown)} {label}:\n")
     for r in shown[: args.top]:
         arb = r.get("arb_profit")
         arb_str = f"ARB +{arb:.1%}  ({r.get('arb_desc')})" if (arb is not None and arb > 0) else ""
