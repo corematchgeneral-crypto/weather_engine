@@ -38,7 +38,7 @@ def _ensure_csv(path: Path, columns: list[str]):
         df.to_csv(path, index=False)
 
 
-def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fee_buffer: float = None, minimum_edge: float = None, integer_settlement_mode: bool = True, min_volume: float | None = None) -> pd.DataFrame:
+def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fee_buffer: float = None, minimum_edge: float = None, integer_settlement_mode: bool = True, min_volume: float | None = None, data_dir: str | Path | None = None) -> pd.DataFrame:
     cfg = load_config()
     if fee_buffer is None:
         fee_buffer = cfg.defaults.get("fee_buffer", FEE_BUFFER_DEFAULT)
@@ -52,11 +52,13 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
     market_df["target_date"] = pd.to_datetime(market_df["target_date"]).dt.date
     market_df["timestamp_utc"] = pd.to_datetime(market_df["timestamp_utc"], utc=True)
 
-    # Prepare archive paths
+    # Prepare archive paths (data_dir overridable for tests / alternate datasets)
     base = Path(__file__).parent.parent
-    market_archive = base / "data" / "market_snapshots.csv"
-    forecast_archive = base / "data" / "forecast_snapshots.csv"
-    signals_path = base / "data" / "signals.csv"
+    data_root = Path(data_dir) if data_dir is not None else base / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    market_archive = data_root / "market_snapshots.csv"
+    forecast_archive = data_root / "forecast_snapshots.csv"
+    signals_path = data_root / "signals.csv"
 
     # Ensure archive files exist (with headers)
     _ensure_csv(market_archive, ["market_snapshot_id", "timestamp_utc", "market", "city", "station", "target_date", "threshold_f", "yes_ask", "no_ask", "yes_bid", "no_bid", "volume", "source_file", "created_at_utc"])
