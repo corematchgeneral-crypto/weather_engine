@@ -1,0 +1,36 @@
+stations:
+  KMDW:
+    city: Chicago
+    lat: 41.7868
+    lon: -87.7522
+    timezone: America/Chicago
+    station_bias_f: 0.0
+    error_std_f: 2.5
+  KLGA:
+    city: New York
+    lat: 40.7769
+    lon: -73.8740
+    timezone: America/New_York
+    station_bias_f: 0.0
+    error_std_f: 2.8
+  KLAX:
+    city: Los Angeles
+    lat: 33.9416
+    lon: -118.4085
+    timezone: America/Los_Angeles
+    station_bias_f: 0.0
+    error_std_f: 2.0
+  KSFO:
+    city: San Francisco
+    lat: 37.6213
+    lon: -122.3790
+    timezone: America/Los_Angeles
+    station_bias_f: 0.0
+    error_std_f: 2.2
+
+defaults:
+  fee_buffer: 0.03
+  minimum_edge: 0.12
+  integer_settlement_mode: true
+  min_market_volume: 20
+  calibration_csv: data/calibration.csv
