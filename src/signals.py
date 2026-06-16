@@ -138,6 +138,7 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
             agg_specs["n_models"] = ("predicted_high_f", "count")
         if "predicted_low_f" in fdf.columns:
             agg_specs["predicted_low_f"] = ("predicted_low_f", "mean")
+            agg_specs["predicted_low_std_f"] = ("predicted_low_f", "std")
         if "precip_probability" in fdf.columns:
             agg_specs["precip_probability"] = ("precip_probability", "mean")
         if "cloud_cover" in fdf.columns:
@@ -189,8 +190,29 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         issues = validation.get("issues", [])
         warnings = validation.get("warnings", [])
 
-        # Model calculation
-        predicted_high = r.get("predicted_high_f")
+        # Contract semantics: underlying (HIGH/LOW/AVG) and direction (ABOVE/BELOW)
+        underlying = str(r.get("underlying")).upper() if ("underlying" in r.index and pd.notna(r.get("underlying"))) else "HIGH"
+        direction = str(r.get("direction")).upper() if ("direction" in r.index and pd.notna(r.get("direction"))) else "ABOVE"
+        if underlying not in ("HIGH", "LOW", "AVG"):
+            underlying = "HIGH"
+        if direction not in ("ABOVE", "BELOW"):
+            direction = "ABOVE"
+
+        # Select the predicted value + ensemble spread for the contract's underlying.
+        pred_high = r.get("predicted_high_f")
+        pred_low = r.get("predicted_low_f") if "predicted_low_f" in r.index else None
+        std_high = r.get("predicted_high_std_f") if "predicted_high_std_f" in r.index else None
+        std_low = r.get("predicted_low_std_f") if "predicted_low_std_f" in r.index else None
+        if underlying == "LOW":
+            predicted_value = pred_low
+            ens_std_raw = std_low
+        elif underlying == "AVG":
+            predicted_value = ((pred_high + pred_low) / 2.0) if (pd.notna(pred_high) and pd.notna(pred_low)) else None
+            ens_std_raw = None  # per-model avg spread not tracked; fall back to climatology
+        else:  # HIGH
+            predicted_value = pred_high
+            ens_std_raw = std_high
+        predicted_high = predicted_value  # name kept for downstream/output compatibility
 
         # Lead time: hours from the market snapshot to the target day.
         target_d = r.get("target_date")
@@ -203,8 +225,7 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
         except Exception:
             hours_until_target = 24.0
 
-        # Ensemble spread (std of per-model predicted highs), if available.
-        ens_std_raw = r.get("predicted_high_std_f") if "predicted_high_std_f" in r.index else None
+        # Ensemble spread (std of per-model predicted values for this underlying).
         ens_std = float(ens_std_raw) if (ens_std_raw is not None and not pd.isna(ens_std_raw)) else None
         n_models_raw = r.get("n_models") if "n_models" in r.index else None
         n_models = int(n_models_raw) if (n_models_raw is not None and not pd.isna(n_models_raw)) else None
@@ -218,6 +239,7 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
                 station,
                 integer_settlement_mode=integer_settlement_mode,
                 ensemble_std_f=ens_std,
+                direction=direction,
                 cfg=cfg,
             )
         model_prob_yes = model["model_prob_yes"] if model else None
@@ -296,9 +318,12 @@ def generate_signals(market_csv_path: str | Path, forecasts_df: pd.DataFrame, fe
             "station": station,
             "target_date": r.get("target_date"),
             "threshold_f": r.get("threshold_f"),
+            "underlying": underlying,
+            "direction": direction,
             "yes_ask": yes_ask,
             "no_ask": no_ask,
             "predicted_high_f": r.get("predicted_high_f"),
+            "predicted_value_f": predicted_high,
             "predicted_high_std_f": ens_std,
             "n_models": n_models,
             "hours_until_target": hours_until_target,

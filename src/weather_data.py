@@ -189,13 +189,18 @@ def fetch_forecasts_for_stations(
     return pd.DataFrame()
 
 
-def fetch_actual_high_f(station: str, target_date: date) -> Optional[float]:
-    """Fetch the observed daily high (deg F) for a past date from the archive.
+def fetch_actual_high_low_f(station: str, target_date: date) -> Dict[str, Optional[float]]:
+    """Fetch the observed daily high AND low (deg F) for a past date.
 
-    Uses Open-Meteo's historical archive endpoint. Returns ``None`` if not
-    available. NOTE: this is reanalysis/observation data and is a good proxy for
-    settlement, but official ForecastEx settlement uses a designated source --
-    confirm the exact source before treating these as authoritative.
+    Uses Open-Meteo's historical archive endpoint. Returns
+    ``{"high": float|None, "low": float|None}``.
+
+    IMPORTANT: This is reanalysis/observation data and is only an *approximation*
+    of the official ForecastEx settlement value. ForecastEx resolves on the
+    whole-degree value shown in the Weather Underground daily summary table for
+    the specified station. For real/traded contracts, enter the official Weather
+    Underground value via scripts/add_settlement.py. Use this archive fetch only
+    for rough forecast-accuracy tracking.
     """
     cfg = load_config(Path(__file__).parent.parent / "config.yaml")
     s = cfg.stations.get(station)
@@ -208,12 +213,19 @@ def fetch_actual_high_f(station: str, target_date: date) -> Optional[float]:
         "timezone": s.timezone,
         "start_date": target_date.isoformat(),
         "end_date": target_date.isoformat(),
-        "daily": "temperature_2m_max",
+        "daily": "temperature_2m_max,temperature_2m_min",
     }
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
     daily = r.json().get("daily", {})
-    arr = daily.get("temperature_2m_max", [])
-    if arr and arr[0] is not None:
-        return c_to_f(float(arr[0]))
-    return None
+    hi = daily.get("temperature_2m_max", [])
+    lo = daily.get("temperature_2m_min", [])
+    return {
+        "high": c_to_f(float(hi[0])) if (hi and hi[0] is not None) else None,
+        "low": c_to_f(float(lo[0])) if (lo and lo[0] is not None) else None,
+    }
+
+
+def fetch_actual_high_f(station: str, target_date: date) -> Optional[float]:
+    """Backward-compatible helper: observed daily high (deg F), archive proxy."""
+    return fetch_actual_high_low_f(station, target_date)["high"]

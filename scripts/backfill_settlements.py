@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 import argparse
 import pandas as pd
 
-from src.weather_data import fetch_actual_high_f
+from src.weather_data import fetch_actual_high_low_f
 
 
 def _collect_pairs(base: Path) -> pd.DataFrame:
@@ -74,21 +74,25 @@ def main():
     new_rows = []
     for station, td in sorted(todo):
         try:
-            high_f = fetch_actual_high_f(station, td)
+            obs = fetch_actual_high_low_f(station, td)
         except Exception as e:
             print(f"  {station} {td}: fetch failed: {e}")
             continue
-        if high_f is None:
+        high_f, low_f = obs.get("high"), obs.get("low")
+        if high_f is None and low_f is None:
             print(f"  {station} {td}: no archive observation available")
             continue
-        print(f"  {station} {td}: actual high = {high_f:.1f}F")
+        print(f"  {station} {td}: high={high_f if high_f is None else round(high_f,1)}F "
+              f"low={low_f if low_f is None else round(low_f,1)}F")
         new_rows.append({
             "station": station,
             "target_date": td,
-            "final_high_f": round(high_f, 1),
+            "final_high_f": round(high_f, 1) if high_f is not None else "",
+            "final_low_f": round(low_f, 1) if low_f is not None else "",
             "source": "OPEN_METEO_ARCHIVE",
             "resolved_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
-            "notes": "auto-backfilled from open-meteo archive (proxy, verify vs official source)",
+            "notes": "PROXY ONLY (open-meteo archive). Official settlement = Weather Underground daily summary; "
+                     "enter the official value via add_settlement.py for traded contracts.",
         })
 
     if not new_rows:

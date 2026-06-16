@@ -79,3 +79,25 @@ def test_probabilities_are_valid():
     res = model_probability_above(74.0, 74.0, hours_until_target_day=48, station="KMDW")
     assert 0.0 <= res["model_prob_yes"] <= 1.0
     assert res["model_prob_no"] == pytest.approx(1.0 - res["model_prob_yes"], abs=1e-12)
+
+
+def test_below_direction_flips_probability():
+    # "exceed 74" with a hot forecast -> YES likely; "be below 74" -> YES unlikely
+    above = model_probability_above(80.0, 74.0, 24, "KMDW", direction="ABOVE")
+    below = model_probability_above(80.0, 74.0, 24, "KMDW", direction="BELOW")
+    assert above["model_prob_yes"] > 0.5
+    assert below["model_prob_yes"] < 0.5
+    # cold forecast -> "be below 74" should be likely YES
+    below_cold = model_probability_above(60.0, 74.0, 24, "KMDW", direction="BELOW")
+    assert below_cold["model_prob_yes"] > 0.5
+
+
+def test_below_integer_boundary():
+    # "be below 74": with integer settlement, YES needs observed <= 73 (true < 73.5)
+    res = model_probability_above(73.0, 74.0, 24, "KMDW", direction="BELOW", integer_settlement_mode=True)
+    assert res["effective_threshold_f"] == pytest.approx(73.5, abs=1e-9)
+
+
+def test_invalid_direction_raises():
+    with pytest.raises(ValueError):
+        model_probability_above(74.0, 74.0, 24, "KMDW", direction="SIDEWAYS")

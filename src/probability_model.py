@@ -131,27 +131,33 @@ def model_probability_above(
     integer_settlement_mode: bool = True,
     ensemble_std_f: Optional[float] = None,
     method: str = "normal_error_v2",
+    direction: str = "ABOVE",
     cfg: Optional["Config"] = None,
 ) -> dict:
-    """Probability that the settled daily high exceeds ``threshold_f``.
+    """Probability that the contract resolves YES.
+
+    Models the settled value (high/low/avg, supplied via ``predicted_high_f``)
+    as Normal(mu, sigma) and integrates the relevant tail.
 
     Parameters
     ----------
     predicted_high_f:
-        Point forecast (typically the ensemble mean across models) in degrees F.
+        Point forecast of the contract's underlying value (ensemble mean), deg F.
+        Named ``predicted_high_f`` for backward compatibility; for LOW/AVG
+        contracts pass the predicted low / average instead.
     threshold_f:
-        Contract threshold ("Above X").
-    hours_until_target_day:
-        Hours from the forecast/snapshot time to the target day. Used by v2 to
-        scale uncertainty with lead time. Ignored by v1.
-    station:
-        Station id used to look up the bias and base error std.
+        Contract threshold (whole degrees on ForecastEx).
+    direction:
+        ``"ABOVE"`` for "exceed X" contracts (YES if value > X), or ``"BELOW"``
+        for "be below X" contracts (YES if value < X).
     integer_settlement_mode:
-        If True, model integer settlement rounding by comparing to
-        ``threshold_f + 0.5``.
+        ForecastEx settles on the whole-degree Weather Underground value.
+        "Exceed 72" wins only at 73+, so we shift the threshold by +0.5 (ABOVE)
+        or -0.5 (BELOW) to model that rounding boundary.
+    hours_until_target_day:
+        Hours from the snapshot to the target day. v2 scales uncertainty with it.
     ensemble_std_f:
-        Standard deviation of the per-model predicted highs (live disagreement).
-        Used by v2 only. ``None`` falls back to climatology alone.
+        Std of the per-model predicted values (live disagreement). v2 only.
     method:
         ``"normal_error_v2"`` (default) or ``"normal_error_v1"`` (legacy).
     cfg:
@@ -164,15 +170,20 @@ def model_probability_above(
     if not station_cfg:
         raise KeyError(f"Station config not found: {station}")
 
+    direction = (direction or "ABOVE").upper()
+    if direction not in ("ABOVE", "BELOW"):
+        raise ValueError(f"direction must be ABOVE or BELOW, got {direction!r}")
+
     bias = station_cfg.station_bias_f
     base_std = station_cfg.error_std_f
 
     mu = predicted_high_f + bias
 
     if integer_settlement_mode:
-        # Settlement compares to an integer observation; model rounding by
-        # shifting the threshold by 0.5 (a contract "Above 74" loses at 74).
-        effective_threshold = threshold_f + 0.5
+        # Whole-degree settlement boundary. "Exceed 72" needs >=73 (true>72.5);
+        # "below 72" needs <=71 (true<71.5).
+        boundary = 0.5 if direction == "ABOVE" else -0.5
+        effective_threshold = threshold_f + boundary
     else:
         effective_threshold = threshold_f
 
@@ -197,13 +208,18 @@ def model_probability_above(
         sigma = sigma_info["sigma"]
 
     z = (effective_threshold - mu) / sigma
-    prob_yes = float(1.0 - _norm_cdf(z))
+    cdf = _norm_cdf(z)  # P(value <= effective_threshold)
+    if direction == "ABOVE":
+        prob_yes = float(1.0 - cdf)   # P(value > threshold)
+    else:
+        prob_yes = float(cdf)         # P(value < threshold)
     prob_no = float(1.0 - prob_yes)
 
     return {
         "model_prob_yes": prob_yes,
         "model_prob_no": prob_no,
         "predicted_high_f": float(predicted_high_f),
+        "direction": direction,
         "effective_threshold_f": float(effective_threshold),
         "error_std_f": float(sigma),
         "base_error_std_f": float(base_std),

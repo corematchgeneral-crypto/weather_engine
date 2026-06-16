@@ -91,15 +91,23 @@ with tab_signals:
         station = row["station"]
         target_date = pd.to_datetime(row["target_date"]).date()
         thresh = float(row["threshold_f"])
+        direction = str(row["direction"]).upper() if ("direction" in market_df.columns and pd.notna(row.get("direction"))) else "ABOVE"
+        underlying = str(row["underlying"]).upper() if ("underlying" in market_df.columns and pd.notna(row.get("underlying"))) else "HIGH"
 
-        # ensemble mean + spread from fetched forecasts for this station/date
+        # ensemble mean + spread from fetched forecasts for this station/date/underlying
         ph, ens_std = None, None
         if not forecasts.empty:
             fr = forecasts[(forecasts["station"] == station) &
                            (pd.to_datetime(forecasts["target_date"]).dt.date == target_date)]
             if not fr.empty:
-                ph = float(fr["predicted_high_f"].mean())
-                ens_std = float(fr["predicted_high_f"].std(ddof=1)) if len(fr) >= 2 else None
+                if underlying == "LOW" and "predicted_low_f" in fr.columns:
+                    series = fr["predicted_low_f"]
+                elif underlying == "AVG" and "predicted_low_f" in fr.columns:
+                    series = (fr["predicted_high_f"] + fr["predicted_low_f"]) / 2.0
+                else:
+                    series = fr["predicted_high_f"]
+                ph = float(series.mean())
+                ens_std = float(series.std(ddof=1)) if len(series) >= 2 else None
 
         if ph is not None:
             station_cfg = cfg.stations[station]
@@ -109,16 +117,22 @@ with tab_signals:
                                        hours_until_target_day=lead_days * 24.0,
                                        ensemble_std_f=ens_std, **_sigma_params())
             sigma = sig_info["sigma"]
-            eff_thr = thresh + 0.5 if integer_settlement_mode else thresh
+            boundary = (0.5 if direction == "ABOVE" else -0.5) if integer_settlement_mode else 0.0
+            eff_thr = thresh + boundary
+
+            def _p_yes(x):
+                cdf = _norm_cdf((eff_thr - x) / sigma)
+                return (1.0 - cdf) if direction == "ABOVE" else cdf
+
             xs = np.arange(mu - 12, mu + 12, 0.5)
-            probs = np.array([1.0 - _norm_cdf((eff_thr - x) / sigma) for x in xs])
+            probs = np.array([_p_yes(x) for x in xs])
             chart_df = pd.DataFrame({"temp": xs, "prob_yes": probs}).set_index("temp")
             st.line_chart(chart_df)
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Predicted high (mean)", f"{ph:.1f} F")
+            c1.metric(f"Predicted {underlying} (mean)", f"{ph:.1f} F")
             c2.metric("Ensemble spread", f"{ens_std:.2f} F" if ens_std is not None else "n/a")
             c3.metric(f"Effective sigma (lead {lead_days}d)", f"{sigma:.2f} F")
-            c4.metric("P(YES) at threshold", f"{(1.0 - _norm_cdf((eff_thr - mu) / sigma)):.1%}")
+            c4.metric(f"P(YES) {direction} {thresh:g}", f"{_p_yes(mu):.1%}")
         else:
             st.info("No forecast found for this row. Fetch forecasts covering the target date.")
 

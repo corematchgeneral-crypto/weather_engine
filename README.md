@@ -68,6 +68,47 @@ pytest -q
 - Start the dashboard to fetch fresh forecasts and compute signals.
 - Generated signals are written to `data/signals.csv` for later backtesting.
 
+## Contract types & settlement (ForecastEx)
+
+ForecastEx "Daily Temperature" contracts ask: *"Will the [high/low/avg] temperature
+in [region] [exceed/be below] [N] F on [date]?"* and settle on the whole-degree
+value in the **Weather Underground** daily summary table for the contract's station.
+
+The engine models this directly:
+
+- **Direction** — `ABOVE` ("exceed N": YES if value > N) or `BELOW` ("be below N":
+  YES if value < N). Integer settlement is handled by shifting the threshold by
+  +0.5 (ABOVE) or -0.5 (BELOW), so "exceed 72" wins only at 73+.
+- **Underlying** — `HIGH`, `LOW`, or `AVG` (average of high and low).
+
+Add optional `underlying` and `direction` columns to `data/market_prices_sample.csv`
+(both default to `HIGH` / `ABOVE` if omitted), e.g.:
+
+```
+timestamp_utc,market,city,station,target_date,threshold_f,underlying,direction,yes_ask,no_ask,...
+2026-06-16T10:30:00Z,Chicago High,Chicago,KMDW,2026-06-17,72,HIGH,ABOVE,0.62,0.41,...
+```
+
+### Settlement source — IMPORTANT
+
+Official settlement is the **Weather Underground** daily "Actual" High/Low value for
+the contract's station. For real/traded contracts, record the official value with:
+
+```bash
+python -m scripts.add_settlement --station KMDW --target-date 2026-06-17 \
+    --final-high-f 84 --source "Weather Underground (KMDW)"
+# AVG/LOW contracts: also pass --final-low-f
+```
+
+`scripts/backfill_settlements.py` (Open-Meteo archive) is a **proxy for testing
+forecast accuracy only** — its values can differ from Weather Underground by a
+degree or two, which flips outcomes near the threshold. Don't use it to judge real
+trade win-rates; use the official values via `add_settlement`.
+
+The per-station calibration loop corrects systematic offset between the Open-Meteo
+*forecast* and the Weather Underground *settlement* — provided your settlements are
+the official WU values.
+
 ## Probability model
 
 We use a normal-distribution error model around the forecasted daily high:
