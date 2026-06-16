@@ -60,13 +60,15 @@ def _is_multivariate(m: Dict[str, Any]) -> bool:
     return et.startswith("KXMVE") or bool(m.get("mve_collection_ticker"))
 
 
-def fetch_open_markets(max_pages: int = 40, page_size: int = 1000, timeout: int = 30,
-                       target: int = 1500, verbose: bool = True) -> List[Dict[str, Any]]:
-    """Fetch open Kalshi markets, skipping provisional/parlay junk.
+def fetch_open_markets(max_pages: int = 40, page_size: int = 200, timeout: int = 30,
+                       target: int = 2000, verbose: bool = True,
+                       skip_categories=("Sports",)) -> List[Dict[str, Any]]:
+    """Fetch open Kalshi markets via the /events endpoint (has categories).
 
-    Kalshi's market list is dominated by freshly-created provisional sports
-    parlays, so we page through (cursor) skipping those and stop once we have
-    `target` real, priced markets.
+    Paging the raw /markets list is ~99% provisional sports parlays, so instead
+    we pull events (which carry a `category`), skip Sports + multivariate, and
+    take their nested markets. This surfaces the Politics/Economics/Crypto/World
+    markets that actually overlap Polymarket.
     """
     import requests  # lazy
     headers = {"Accept": "application/json"}
@@ -74,29 +76,42 @@ def fetch_open_markets(max_pages: int = 40, page_size: int = 1000, timeout: int 
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    skip = {c.lower() for c in skip_categories}
     out: List[Dict[str, Any]] = []
     cursor = None
     scanned = 0
     for page in range(max_pages):
-        params = {"status": "open", "limit": page_size}
+        params = {"status": "open", "limit": page_size, "with_nested_markets": "true"}
         if cursor:
             params["cursor"] = cursor
-        r = requests.get(f"{KALSHI_BASE}/markets", params=params, headers=headers, timeout=timeout)
+        r = requests.get(f"{KALSHI_BASE}/events", params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
         data = r.json()
-        markets = data.get("markets", []) if isinstance(data, dict) else []
-        if not markets:
+        events = data.get("events", []) if isinstance(data, dict) else []
+        if not events:
             break
-        scanned += len(markets)
-        for m in markets:
-            if _is_multivariate(m):
+        scanned += len(events)
+        for ev in events:
+            et = str(ev.get("event_ticker") or "")
+            cat = str(ev.get("category") or "")
+            if et.startswith("KXMVE") or cat.lower() in skip:
                 continue
-            nm = normalize_kalshi_market(m)
-            if nm["yes_ask"] is None and nm["no_ask"] is None:
-                continue
-            out.append(nm)
+            ev_title = (ev.get("title") or ev.get("sub_title") or "").strip()
+            for m in ev.get("markets", []) or []:
+                if _is_multivariate(m):
+                    continue
+                nm = normalize_kalshi_market(m)
+                strike = (m.get("yes_sub_title") or "").strip()
+                title = ev_title
+                if strike and "," not in strike and strike.lower() not in title.lower():
+                    title = f"{title} {strike}".strip()
+                if title:
+                    nm["title"] = title
+                nm["category"] = cat
+                if nm["yes_ask"] is not None or nm["no_ask"] is not None:
+                    out.append(nm)
         if verbose:
-            print(f"    kalshi page {page + 1}: scanned {scanned}, kept {len(out)}")
+            print(f"    kalshi events page {page + 1}: scanned {scanned} events, kept {len(out)} markets")
         cursor = data.get("cursor")
         if not cursor or len(out) >= target:
             break
