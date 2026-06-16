@@ -41,9 +41,17 @@ def extract_numbers(title: str) -> set:
     return set(re.findall(r"\d+", title or ""))
 
 
+_NEGATION_RE = re.compile(r"\b(not|no|won'?t|never|fail|fails|without|isn'?t|doesn'?t|wont)\b", re.I)
+
+
+def has_negation(title: str) -> bool:
+    return bool(_NEGATION_RE.search(title or ""))
+
+
 def title_similarity(a: str, b: str) -> float:
-    """Jaccard similarity of meaningful tokens, with a hard penalty when both
-    titles contain numbers that don't overlap (different thresholds)."""
+    """Jaccard similarity of meaningful tokens, with hard penalties when the two
+    titles disagree on numbers (different thresholds) or negation (e.g. 'NOT meet'
+    vs 'meet') -- the two biggest sources of false cross-venue matches."""
     ta, tb = normalize_tokens(a), normalize_tokens(b)
     if not ta or not tb:
         return 0.0
@@ -53,6 +61,8 @@ def title_similarity(a: str, b: str) -> float:
     na, nb = extract_numbers(a), extract_numbers(b)
     if na and nb and not (na & nb):
         jac *= 0.3  # numbers disagree -> very unlikely the same contract
+    if has_negation(a) != has_negation(b):
+        jac *= 0.2  # one side negated ('NOT meet' vs 'speak') -> different contract
     return jac
 
 
